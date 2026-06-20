@@ -67,6 +67,16 @@ Matérialiser une table/vue `observations` reste une **optim plus tard** si le G
 (paquet position reçu). Pas de position → pas de point. Et c'est du **node → gateway** (réception),
 pas du nœud-à-nœud (faute de paquets `neighborinfo`, dont on capte zéro).
 
+## Carte — markers & interactions
+
+- **Gateways MQTT** (node dont l'ID apparaît comme `gateway_id`/`sender` dans `packets`) → marker
+  **vert Meshtastic `#67EA94`** (ce sont nos capteurs/relais, mis en avant).
+- **Autres nodes** → couleur **déterministe** dérivée du `node_id` (hash → teinte HSL), **stable**
+  entre rechargements (pas un random par render).
+- **Survol** : façon app Meshtastic → **nom long / nom court / signal** (SNR si dispo → nécessite de
+  remonter le dernier SNR du node dans `PublicNode`).
+- **Clic** → page **détail node** (courbes 30j).
+
 ## API
 
 | Route | Réponse |
