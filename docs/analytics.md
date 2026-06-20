@@ -1,85 +1,95 @@
-# Analytics, heatmap & link graph (Phase 4)
+# Analytics & toile mesh (Phase 4)
 
-Enrichissement des pages au-delà de la carte temps réel : couverture signal, statistiques
-réseau, historique par node, graphe des liaisons. S'appuie sur les données **déjà captées**
-en Phase 2/3 (`packets` + `nodes`) — aucun changement worker obligatoire.
+Enrichissement au-delà de la carte temps réel : **toile de liaisons depuis les gateways**
+(diagnostic de portée/résilience), statistiques réseau, historique par node. S'appuie sur les
+données **déjà captées** en Phase 2/3 (`packets` + `nodes`) — aucun changement worker obligatoire.
+
+> **Heatmap SNR : abandonnée.** Peu lisible (blobs), et vide tant que peu de nodes opt-in. Remplacée
+> par la toile mesh, plus visuelle ET plus utile (vrai instrument de diagnostic).
 
 ## Périmètre Phase 4
 
 | Bloc | Contenu |
 | ---- | ------- |
-| **Heatmap couverture SNR** | Le différenciateur vs Gaulix : qualité de signal spatialisée, pas juste des points. |
-| **Page Statistiques** | KPI réseau + répartitions (hw, firmware, rôle, type de paquet, hops) + filtres temporels. |
+| **Toile mesh gateways** | Le différenciateur. Survol d'un gateway → sa toile. Voir ci-dessous. |
+| **Page Statistiques** | ✅ implémentée. KPI réseau + répartitions en barres + filtres. |
 | **Page détail node** | Courbes 30j (SNR, batterie, paquets/jour) pour un node. |
-| **Link graph** | Graphe « qui relaie qui » (liens sur la carte + graphe topologique abstrait). |
-| **Filtres** | Temporels (fenêtre) + carte (modulation, rôle, recherche node). |
+| **Filtres** | Temporels (fenêtre) + carte (hop, rôle, recherche node). |
 
-**Déplacé en Phase 5** (chevauchement alertes / besoin d'auth) :
-- Vues listes nodes spécialisées (actifs / batterie faible / mal configurés).
-- Page debug « Trames » (flux brut) — derrière l'auth admin.
+**Déplacé en Phase 5** : vues listes nodes (actifs / batterie faible / mal configurés), page debug
+« Trames » (derrière auth admin), tiers d'opt-in + snap mobiles ~1,5 km (cf. privacy).
 
-**Hors périmètre (jamais en Phase 4)** : messagerie (branche dédiée), envoyer une trame
-(uplink only, downlink OFF), décodeurs QR/ProtoBuf, générateur de nom.
+**Hors périmètre** : messagerie (branche dédiée), envoyer une trame (uplink only), décodeurs.
+
+## Toile mesh depuis les gateways — le cœur
+
+Visualisation de **« qui entend qui »** centrée sur les **gateways** (les relais MQTT = nos capteurs).
+Trois états de lecture :
+
+1. **Survol d'un gateway → sa toile locale.** Traits vers tous les nodes que CE gateway entend. Là
+   où la toile s'arrête, le signal meurt faute de relais. Animation : les liens se tracent
+   progressivement depuis le gateway (le tracé = la propagation, esthétique *et* sens).
+2. **Vue d'ensemble → nœuds-ponts en surbrillance.** Un node entendu par **≥2 gateways** est un
+   point critique de résilience (s'il tombe, deux zones se déconnectent).
+3. **Zones aveugles.** Deux toiles de gateways géographiquement proches sans aucun nœud commun →
+   pointillé « relais manquant ici ».
+
+### La distinction qui rend l'outil crédible
+
+- **Lien plein, épais → `hop_count = 0`** : le gateway entend ce node **en direct**. C'est la **vraie
+  portée radio du terrain** (relief inclus), la seule info exploitable pour décider où poser un relais.
+- **Lien fin, pointillé → `hop_count > 0`** : connu **via le mesh** (joignable, mais pas à portée directe).
+
+Le terrain donne la réponse gratuitement à travers la donnée — aucune modélisation de propagation.
+
+### Données : tout est déjà dans `packets` (pas de table dédiée)
+
+Le worker stocke déjà `gateway_id` (= `raw.sender`, l'ID du relais MQTT), `node_id`, `snr`, `rssi`,
+`hop_count`. Les « observations » = un agrégat :
+
+```sql
+SELECT gateway_id, node_id,
+       MIN(hop_count) AS best_hop,   -- 0 = lien radio direct réel
+       AVG(snr)       AS snr,
+       MAX(received_at) AS last_seen
+FROM packets
+WHERE gateway_id IS NOT NULL AND node_id IS NOT NULL
+GROUP BY gateway_id, node_id
+```
+
+- **Toile d'un gateway** = `WHERE gateway_id = X`.
+- **Nœud-pont** = `node_id` présent pour ≥ 2 `gateway_id`.
+- **Zone aveugle** = deux gateways sans `node_id` commun (et proches géographiquement).
+
+Matérialiser une table/vue `observations` reste une **optim plus tard** si le GROUP BY pèse — pas maintenant.
+
+⚠️ Limite honnête : on ne place sur la carte que les gateways/nodes ayant une **position connue**
+(paquet position reçu). Pas de position → pas de point. Et c'est du **node → gateway** (réception),
+pas du nœud-à-nœud (faute de paquets `neighborinfo`, dont on capte zéro).
 
 ## API
 
-Routes Handlers Next (`app/api/<x>/route.ts`, `export const dynamic = "force-dynamic"`).
-SQL centralisé dans `lib/queries/` (jamais inline), testé en TDD (Red-Green-Refactor).
-
 | Route | Réponse |
 | ----- | ------- |
-| `GET /api/coverage?since=...` | GeoJSON : agrégat SNR par bucket géo (alimente la heatmap) |
+| `GET /api/observations?since=...` | Arêtes gateway × node entendu (`best_hop`, SNR), privacy-aware |
 | `GET /api/nodes/[id]/history?since=...` | Séries 30j d'un node (SNR, batterie, paquets/jour) |
-| `GET /api/links?since=...` | Arêtes du graphe (node → voisin + SNR), privacy-aware |
 
-**Page Statistiques** : ✅ implémentée. Pas de route API — la page `/stats` (Server
-Component) appelle `getNetworkStats()` **directement** (pattern Phase 3 : un Server
-Component lit la DB sans passer par `/api`). `/api/stats` reste l'endpoint de la barre
-carte (`getStats`, opt-in only). Le firmware n'est **pas** dans le payload nodeinfo MQTT
-→ pas de répartition firmware.
+**Page Statistiques** : ✅ implémentée, pas de route — la page `/stats` (Server Component) appelle
+`getNetworkStats()` directement. `/api/stats` reste l'endpoint de la barre carte (`getStats`).
 
-## Stats = tout le réseau capté (≠ carte)
+## Stats = tout le réseau capté (≠ affichage carte)
 
-Décision assumée : les **agrégats anonymes** (compteurs, répartitions) portent sur **tous**
-les nodes/paquets captés (comme l'affichage 381 nodes de Gaulix), pas seulement les opt-in.
-Un agrégat n'expose aucun individu.
+Les **agrégats anonymes** (compteurs, répartitions) portent sur **tous** les nodes/paquets captés —
+un agrégat n'expose aucun individu. `getNetworkStats` **n'applique PAS** de filtre privacy (divergence
+**volontaire**, ne pas réuniformiser). Répartitions en **barres horizontales triées** (Recharts), pas
+de camemberts ; `StatsCharts.tsx` replie la traîne au-delà du top 10 en « autres ».
 
-→ `getStats` (et les requêtes stats) **n'appliquent PAS** le filtre
-`share_on_map = TRUE AND is_mobile = FALSE` qui borne `getPublicNodes`. Divergence
-**volontaire** : la barrière privacy reste stricte sur la **carte** et le **temps réel**,
-mais pas sur les comptages agrégés. Ne pas « corriger » en réuniformisant.
+## Privacy (toile + carte)
 
-KPI cible : nodes total, nodes actifs (24h), paquets 24h, **paquets/min**, **utilisation
-canal moyenne**, **air util TX moyen** — tous dérivables de `packets` (`channel_util`,
-`air_util_tx`) sans nouvelle colonne.
-
-## Visualisations — barres, pas camemberts
-
-Les répartitions catégorielles (type de carte, rôle, type de paquet, hops) sont rendues en
-**barres horizontales triées** (Recharts), pas en camemberts (illisibles dès qu'il y a une
-longue traîne, cf. Gaulix). `StatsCharts.tsx` replie la traîne au-delà du top 10 en
-« autres ». Recharts aussi pour les courbes historiques.
-
-## Heatmap couverture SNR
-
-- Source : `GET /api/coverage` → GeoJSON. Agrégation SQL par bucket lat/lon (l'index
-  `idx_packets_geo` existe déjà), valeur = SNR moyen/médian du bucket.
-- Rendu : couche `heatmap` MapLibre (pondérée par le SNR), **pas** des markers HTML.
-- ⚠️ Rappel réseau : `rssi`/`snr` = qualité du **dernier hop** (relais → nous), pas de
-  l'émetteur d'origine. La heatmap reflète la couverture des **gateways**, à libeller comme tel.
-
-## Link graph — données & privacy
-
-- **Source** : paquets `neighborinfo` (un node déclare ses voisins directs + SNR), **déjà
-  captés** dans `packets.raw` (le worker ne filtre que par canal). Les arêtes sont dérivées
-  au read-time depuis `packets` — matérialiser une table `node_neighbors` reste une optim
-  optionnelle à trancher si les requêtes pèsent.
-- **Privacy (OBLIGATOIRE)** :
-  - **Liens géographiques sur la carte** : uniquement entre nodes **opt-in** (`share_on_map`).
-    Un lien vers un node non opt-in révélerait sa position → exclu.
-  - **Graphe topologique abstrait** (force-directed, sans carte) : peut inclure tout le
-    réseau, mais les nodes non opt-in sont **anonymisés** (ID masqué, aucune position).
-  - Jamais « tout visible » comme Gaulix.
+Politique **public par défaut** mais consentement respecté à la source. Détails : [privacy-rgpd.md](privacy-rgpd.md).
+Pour la toile : on respecte `precision_bits` (jamais sur-précis), `is_mobile` → snap ~1,5 km constant,
+jamais `Fr_EMCOM`/canaux privés, opt-out + suppression. La toile reste honnête car les liens 0-hop ne
+dépendent pas d'une position fine.
 
 ## Vérification manuelle
 
@@ -89,5 +99,5 @@ yarn worker:dev             # ingestion MQTT
 yarn dev                    # http://localhost:3000
 ```
 
-Heatmap cohérente avec les zones de gateways ; page stats avec compteurs sur tout le réseau ;
-détail node affichant 30j ; link graph sans aucune position de node non opt-in.
+Survol d'un gateway → sa toile se déploie (0-hop plein, mesh pointillé) ; nœuds-ponts surlignés ;
+page stats avec compteurs sur tout le réseau ; détail node sur 30j.
