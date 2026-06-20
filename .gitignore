@@ -42,7 +42,6 @@ yarn-error.log*
 next-env.d.ts
 
 # environnement AI
-.claude/*
-!.claude/CLAUDE.md
+.claude/
 _bmad/
 _bmad-output/
