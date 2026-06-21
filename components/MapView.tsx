@@ -20,7 +20,12 @@ type MarkerNode = Pick<
   | "lon"
   | "batteryPct"
   | "lastSeen"
-> & { isGateway?: boolean; lastSnr?: number | null; role?: string | null };
+> & {
+  isGateway?: boolean;
+  lastSnr?: number | null;
+  role?: string | null;
+  isMobile?: boolean;
+};
 
 // Libellé : nom court, sinon les 4 derniers du node id (convention Meshtastic).
 function shortLabel(
@@ -45,6 +50,7 @@ function nodeFeature(n: MarkerNode): GeoJSON.Feature {
       lastSnr: n.lastSnr ?? null,
       role: n.role ?? "",
       isGateway,
+      isMobile: n.isMobile ?? false,
       color: nodeColor(n.nodeId, isGateway),
     },
   };
@@ -65,6 +71,7 @@ function pillElement(p: Record<string, unknown>): HTMLElement {
   el.style.border = isGateway
     ? "2px solid rgba(255,255,255,0.95)"
     : "1.5px solid rgba(255,255,255,0.9)";
+  if (p.isMobile === true) el.style.borderStyle = "dashed"; // position approximative
   el.style.boxShadow = "0 1px 3px rgba(0,0,0,0.35)";
   el.style.cursor = "pointer";
   el.style.whiteSpace = "nowrap";
@@ -130,6 +137,12 @@ function hoverCard(p: Record<string, unknown>): HTMLElement {
     const sig = document.createElement("div");
     sig.textContent = `Signal : ${lastSnr} dB`;
     el.appendChild(sig);
+  }
+  if (p.isMobile === true) {
+    const m = document.createElement("div");
+    m.style.color = "#999";
+    m.textContent = "≈ position approximative";
+    el.appendChild(m);
   }
   return el;
 }

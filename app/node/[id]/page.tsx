@@ -60,6 +60,11 @@ export default async function NodePage({
               Nœud-pont · {gateways.length} gateways
             </span>
           )}
+          {node.isMobile && (
+            <span className="rounded bg-amber-500/20 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
+              Mobile · position ≈
+            </span>
+          )}
         </div>
         <p className="mb-6 font-mono text-sm text-zinc-500">{node.nodeId}</p>
 
