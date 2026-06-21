@@ -161,6 +161,16 @@ export interface MapBounds {
   north: number;
 }
 
+// Ligne de l'aperçu gateways (page /admin/trames). Diagnostic de charge/portée :
+// combien de trames un gateway capte et combien de nodes distincts il entend.
+export interface GatewayStat {
+  gatewayId: string;
+  name: string | null; // long_name du node gateway si connu
+  packets24h: number; // trames captées sur 24h (Fr_EMCOM exclu)
+  nodes24h: number; // nodes distincts entendus sur 24h
+  lastSeen: string | null; // ISO 8601, dernière trame captée
+}
+
 // Ligne du flux debug « Trames » (page /admin/trames, admin only). Paquet brut
 // capté ; Fr_EMCOM exclu en amont (privacy). `raw` = payload MQTT complet.
 export interface Trame {
