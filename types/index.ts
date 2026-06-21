@@ -106,6 +106,23 @@ export interface Observation {
   snr: number | null;
 }
 
+// Page détail node — point de la série journalière (courbes 30j).
+export interface NodeHistoryPoint {
+  day: string; // YYYY-MM-DD
+  snr: number | null;
+  battery: number | null;
+  packets: number;
+}
+
+// Lien d'un node vers un gateway qui l'entend (multi-SNR si nœud-pont).
+export interface NodeGatewayLink {
+  gatewayId: string;
+  gatewayName: string | null;
+  snr: number | null;
+  bestHop: number | null; // 0 = lien radio direct
+  packets: number;
+}
+
 // Payload poussé en temps réel (pg_notify 'node_update' -> SSE /api/stream).
 // Sous-ensemble de PublicNode : juste ce qu'il faut pour bouger un marker.
 export interface NodeUpdate {

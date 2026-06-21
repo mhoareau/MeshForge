@@ -185,6 +185,7 @@ export default function MapView() {
   const obsRef = useRef<Map<string, { nodeId: string; hop: number }[]>>(
     new Map(),
   );
+  const bridgeRef = useRef<Set<string>>(new Set());
   const router = useRouter();
   const routerRef = useRef(router);
   useEffect(() => {
@@ -323,6 +324,17 @@ export default function MapView() {
       for (const it of items) it.m.setOffset([it.dx, it.dy]);
     };
 
+    // Nœud-pont (entendu par ≥2 gateways) → liseré bleu épais (box-shadow ring).
+    const applyBridge = (): void => {
+      for (const id in onScreen) {
+        if (!id.startsWith("n")) continue;
+        const el = onScreen[id].getElement();
+        el.style.boxShadow = bridgeRef.current.has(id.slice(1))
+          ? "0 0 0 3px #2563eb, 0 1px 3px rgba(0,0,0,0.4)"
+          : "0 1px 3px rgba(0,0,0,0.35)";
+      }
+    };
+
     const updateMarkers = (): void => {
       if (!map.getSource("nodes") || !map.isSourceLoaded("nodes")) return;
       const next: Record<string, maplibregl.Marker> = {};
@@ -374,6 +386,7 @@ export default function MapView() {
       }
       onScreen = next;
       spreadPills();
+      applyBridge();
     };
 
     map.on("load", () => {
@@ -408,11 +421,20 @@ export default function MapView() {
         .then((obs) => {
           const m = obsRef.current;
           m.clear();
+          const gwByNode = new Map<string, Set<string>>();
           for (const o of obs) {
             const arr = m.get(o.gatewayId) ?? [];
             arr.push({ nodeId: o.nodeId, hop: o.bestHop ?? 9 });
             m.set(o.gatewayId, arr);
+            const set = gwByNode.get(o.nodeId) ?? new Set<string>();
+            set.add(o.gatewayId);
+            gwByNode.set(o.nodeId, set);
           }
+          // Nœud-pont = entendu par ≥2 gateways distincts.
+          bridgeRef.current = new Set(
+            [...gwByNode].filter(([, s]) => s.size >= 2).map(([n]) => n),
+          );
+          applyBridge();
         })
         .catch(() => {});
     });
