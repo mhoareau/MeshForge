@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import maplibregl, { type LineLayerSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -20,7 +20,7 @@ type MarkerNode = Pick<
   | "lon"
   | "batteryPct"
   | "lastSeen"
-> & { isGateway?: boolean; lastSnr?: number | null };
+> & { isGateway?: boolean; lastSnr?: number | null; role?: string | null };
 
 // Libellé : nom court, sinon les 4 derniers du node id (convention Meshtastic).
 function shortLabel(
@@ -43,6 +43,7 @@ function nodeFeature(n: MarkerNode): GeoJSON.Feature {
       shortName: n.shortName ?? "",
       lastSeen: n.lastSeen ?? "",
       lastSnr: n.lastSnr ?? null,
+      role: n.role ?? "",
       isGateway,
       color: nodeColor(n.nodeId, isGateway),
     },
@@ -186,6 +187,17 @@ export default function MapView() {
     new Map(),
   );
   const bridgeRef = useRef<Set<string>>(new Set());
+  const [search, setSearch] = useState("");
+  const [role, setRole] = useState("");
+  const [sinceH, setSinceH] = useState(0); // 0 = tous
+  const [maxHop, setMaxHop] = useState(9); // 9 = tous (inclut hop inconnu)
+  const filtersRef = useRef({ search, role, sinceH, maxHop });
+  const refreshRef = useRef<() => void>(() => {});
+  // Filtres React → carte : on met à jour le ref + on re-filtre la source.
+  useEffect(() => {
+    filtersRef.current = { search, role, sinceH, maxHop };
+    refreshRef.current();
+  }, [search, role, sinceH, maxHop]);
   const router = useRouter();
   const routerRef = useRef(router);
   useEffect(() => {
@@ -220,11 +232,25 @@ export default function MapView() {
     const nodesSource = (): maplibregl.GeoJSONSource | undefined =>
       map.getSource("nodes") as maplibregl.GeoJSONSource | undefined;
     const refreshNodes = (): void => {
-      nodesSource()?.setData({
-        type: "FeatureCollection",
-        features: [...nodesById.current.values()],
+      const { search, role, sinceH } = filtersRef.current;
+      const q = search.trim().toLowerCase();
+      const minSeen = sinceH > 0 ? Date.now() - sinceH * 3600000 : 0;
+      const features = [...nodesById.current.values()].filter((f) => {
+        const p = (f.properties ?? {}) as Record<string, unknown>;
+        if (role && p.role !== role) return false;
+        if (minSeen) {
+          const t = p.lastSeen ? new Date(p.lastSeen as string).getTime() : 0;
+          if (t < minSeen) return false;
+        }
+        if (q) {
+          const hay = `${p.nodeId} ${p.longName} ${p.shortName}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
       });
+      nodesSource()?.setData({ type: "FeatureCollection", features });
     };
+    refreshRef.current = refreshNodes;
     const posById = (nodeId: string): LngLat | null => {
       const f = nodesById.current.get(nodeId);
       return f && f.geometry.type === "Point"
@@ -244,7 +270,9 @@ export default function MapView() {
     const drawMesh = (gatewayId: string, gw: LngLat): void => {
       const src = meshSource();
       if (!src) return;
+      const { maxHop } = filtersRef.current;
       const targets = (obsRef.current.get(gatewayId) ?? [])
+        .filter((e) => e.hop <= maxHop)
         .map((e) => ({ hop: e.hop, pos: posById(e.nodeId) }))
         .filter((t): t is { hop: number; pos: LngLat } => t.pos !== null);
       if (!targets.length) return;
@@ -459,8 +487,19 @@ export default function MapView() {
     const es = new EventSource("/api/stream");
     es.addEventListener("node_update", (event) => {
       try {
-        const n = JSON.parse((event as MessageEvent).data) as NodeUpdate;
-        nodesById.current.set(n.nodeId, nodeFeature(n));
+        const u = JSON.parse((event as MessageEvent).data) as NodeUpdate;
+        const existing = nodesById.current.get(u.nodeId);
+        if (existing && existing.geometry.type === "Point") {
+          // MAJ position/nom/last seen, MAIS préserve isGateway/role/couleur.
+          existing.geometry.coordinates = [u.lon, u.lat];
+          const p = existing.properties as Record<string, unknown>;
+          p.longName = u.longName ?? p.longName;
+          p.shortName = u.shortName ?? p.shortName;
+          p.label = shortLabel(u.nodeId, (u.shortName ?? p.shortName) as string);
+          p.lastSeen = u.lastSeen ?? "";
+        } else {
+          nodesById.current.set(u.nodeId, nodeFeature(u));
+        }
         refreshNodes();
       } catch {
         /* payload illisible : on ignore */
@@ -482,6 +521,49 @@ export default function MapView() {
         ref={zoomRef}
         className="pointer-events-none absolute left-2 top-2 rounded bg-black/70 px-2 py-1 font-mono text-xs text-white"
       />
+      <div className="absolute left-1/2 top-2 flex max-w-[calc(100%-1rem)] -translate-x-1/2 flex-wrap items-center gap-2 rounded-lg bg-white/95 px-3 py-2 text-sm shadow ring-1 ring-black/10 dark:bg-zinc-800/95 dark:text-zinc-100 dark:ring-white/15">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Rechercher un node…"
+          className="w-40 rounded border border-black/10 bg-transparent px-2 py-1 dark:border-white/20"
+        />
+        <select
+          value={role}
+          onChange={(e) => setRole(e.target.value)}
+          className="rounded border border-black/10 bg-transparent px-2 py-1 dark:border-white/20"
+        >
+          <option value="">Tous rôles</option>
+          {["CLIENT", "CLIENT_MUTE", "ROUTER", "ROUTER_LATE", "REPEATER", "TRACKER", "SENSOR"].map(
+            (r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ),
+          )}
+        </select>
+        <select
+          value={sinceH}
+          onChange={(e) => setSinceH(Number(e.target.value))}
+          className="rounded border border-black/10 bg-transparent px-2 py-1 dark:border-white/20"
+        >
+          <option value={0}>Vus : tous</option>
+          <option value={24}>24 h</option>
+          <option value={168}>7 j</option>
+          <option value={720}>30 j</option>
+        </select>
+        <select
+          value={maxHop}
+          onChange={(e) => setMaxHop(Number(e.target.value))}
+          className="rounded border border-black/10 bg-transparent px-2 py-1 dark:border-white/20"
+        >
+          <option value={9}>Toile : tous hops</option>
+          <option value={0}>direct (0-hop)</option>
+          <option value={1}>≤ 1 hop</option>
+          <option value={2}>≤ 2 hops</option>
+          <option value={3}>≤ 3 hops</option>
+        </select>
+      </div>
     </div>
   );
 }
