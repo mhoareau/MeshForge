@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { isAdmin } from "@/lib/admin";
 import { logout } from "@/app/admin/actions";
+import MobileMenu from "./MobileMenu";
 
 const LINKS = [
   { href: "/", label: "Carte" },
@@ -34,12 +35,13 @@ export default async function SiteHeader({
   const admin = await isAdmin();
 
   return (
-    <header className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-white/10 px-6 py-3">
+    <header className="relative flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-white/10 px-4 py-3 sm:px-6">
       <Link href="/" className="text-lg font-extrabold tracking-tight">
         <span className="text-accent">Mesh</span>Forge
       </Link>
 
-      <nav className="flex items-center gap-5 text-sm font-medium">
+      {/* Nav inline à partir de md ; en dessous, c'est le hamburger qui prend le relais. */}
+      <nav className="hidden items-center gap-5 text-sm font-medium md:flex">
         {LINKS.map((l) => (
           <Link
             key={l.href}
@@ -66,15 +68,21 @@ export default async function SiteHeader({
         )}
       </nav>
 
-      <div className="ml-auto flex items-center gap-6">
-        {right}
+      <div className="ml-auto flex items-center gap-4 sm:gap-6">
+        {right && <div className="hidden items-center sm:flex">{right}</div>}
         {admin && (
-          <form action={logout}>
+          <form action={logout} className="hidden md:block">
             <button className="font-mono text-xs uppercase tracking-wider text-muted transition-colors hover:text-foreground">
               Déconnexion
             </button>
           </form>
         )}
+        <MobileMenu
+          links={LINKS}
+          adminLinks={admin ? ADMIN_LINKS : []}
+          active={active}
+          logout={logout}
+        />
       </div>
     </header>
   );

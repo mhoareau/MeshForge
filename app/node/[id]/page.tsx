@@ -87,7 +87,7 @@ export default async function NodePage({
     <div className="flex min-h-0 flex-1 flex-col">
       <SiteHeader />
 
-      <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-6">
+      <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-6 sm:px-6">
         <div className="mb-1 flex flex-wrap items-center gap-2">
           <h2 className="text-xl font-semibold">{title}</h2>
           {node.isGateway && (
@@ -133,10 +133,10 @@ export default async function NodePage({
               {gateways.map((g) => (
                 <li
                   key={g.gatewayId}
-                  className="flex items-center justify-between gap-4 px-4 py-2 text-sm"
+                  className="flex flex-col gap-1 px-4 py-2 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4"
                 >
                   <span className="font-medium">{g.gatewayName ?? g.gatewayId}</span>
-                  <span className="flex gap-4 font-mono text-zinc-600 dark:text-zinc-300">
+                  <span className="flex flex-wrap gap-x-4 gap-y-0.5 font-mono text-zinc-600 dark:text-zinc-300">
                     <span>{fmt(g.snr, " dB")}</span>
                     <span className={g.bestHop === 0 ? "text-emerald-600" : ""}>
                       {hopLabel(g.bestHop)}

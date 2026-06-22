@@ -30,7 +30,7 @@ export default function MentionsLegalesPage() {
     <div className="flex min-h-0 flex-1 flex-col">
       <SiteHeader active="/mentions-legales" />
 
-      <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-8">
+      <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-8 sm:px-6">
         <h2 className="text-xl font-semibold">Mentions légales</h2>
         <p className="mb-6 mt-1 text-sm text-muted">
           Conformément à la loi n°2004-575 (LCEN) et au RGPD (règlement UE

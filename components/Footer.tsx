@@ -23,7 +23,7 @@ export default function Footer() {
   return (
     <footer
       onClick={registerTap}
-      className="flex h-(--footer-h) shrink-0 select-none flex-wrap items-center justify-center gap-x-1 border-t border-white/10 px-6 text-center font-mono text-xs text-muted"
+      className="flex min-h-(--footer-h) shrink-0 select-none flex-wrap items-center justify-center gap-x-1 gap-y-0.5 border-t border-white/10 px-4 py-1.5 text-center font-mono text-xs text-muted sm:px-6"
     >
       <span className="pr-1 font-bold text-accent">MeshForge</span>
       par

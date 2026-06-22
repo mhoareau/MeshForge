@@ -29,7 +29,7 @@ export default async function Home() {
       <SiteHeader
         active="/"
         right={
-          <div className="flex gap-8">
+          <div className="flex gap-4 sm:gap-6">
             <Stat label="Nodes sur la carte" value={stats.nodesTotal} />
             <Stat label="En ligne (15 min)" value={stats.nodesOnline} />
             <Stat label="Paquets / 24 h" value={stats.packets24h} />

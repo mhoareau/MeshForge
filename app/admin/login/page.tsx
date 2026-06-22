@@ -51,7 +51,7 @@ export default async function AdminLoginPage({
   const { error } = await searchParams;
 
   return (
-    <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center px-6">
+    <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center px-4 sm:px-6">
       <h1 className="mb-1 text-lg font-extrabold tracking-tight">
         Mesh<span className="text-accent">Forge</span>
       </h1>

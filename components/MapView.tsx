@@ -120,8 +120,6 @@ function hoverCard(p: Record<string, unknown>): HTMLElement {
   el.style.color = "#111";
   el.style.fontSize = "12px";
   el.style.lineHeight = "1.4";
-  el.style.opacity = "0.7";
-  el.style.zIndex = "999";
 
   const title = document.createElement("div");
   title.style.fontWeight = "600";
@@ -261,6 +259,7 @@ export default function MapView({
       closeButton: false,
       closeOnClick: false,
       offset: 19,
+      className: "mf-popup",
     });
 
     const nodesSource = (): maplibregl.GeoJSONSource | undefined =>
@@ -560,19 +559,19 @@ export default function MapView({
       <div ref={containerRef} className="h-full w-full" />
       <div
         ref={zoomRef}
-        className="pointer-events-none absolute left-2 top-2 rounded bg-black/70 px-2 py-1 font-mono text-xs text-white"
+        className="pointer-events-none absolute bottom-2 left-2 rounded bg-black/70 px-2 py-1 font-mono text-xs text-white sm:bottom-auto sm:top-2"
       />
-      <div className="absolute left-1/2 top-2 flex max-w-[calc(100%-1rem)] -translate-x-1/2 flex-wrap items-center gap-2 rounded-lg bg-white/95 px-3 py-2 text-sm shadow ring-1 ring-black/10 dark:bg-zinc-800/95 dark:text-zinc-100 dark:ring-white/15">
+      <div className="absolute inset-x-2 top-2 flex flex-wrap items-center gap-2 rounded-lg bg-white/95 px-3 py-2 text-sm shadow ring-1 ring-black/10 sm:inset-x-auto sm:left-1/2 sm:max-w-[calc(100%-1rem)] sm:-translate-x-1/2 dark:bg-zinc-800/95 dark:text-zinc-100 dark:ring-white/15">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Rechercher un node…"
-          className="w-40 rounded border border-black/10 bg-transparent px-2 py-1 dark:border-white/20"
+          className="min-w-32 flex-1 rounded border border-black/10 bg-transparent px-2 py-1 sm:w-40 sm:flex-none dark:border-white/20"
         />
         <select
           value={role}
           onChange={(e) => setRole(e.target.value)}
-          className="rounded border border-black/10 bg-transparent px-2 py-1 dark:border-white/20"
+          className="min-w-0 flex-1 rounded border border-black/10 bg-transparent px-2 py-1 sm:flex-none dark:border-white/20"
         >
           <option value="">Tous rôles</option>
           {[
@@ -592,7 +591,7 @@ export default function MapView({
         <select
           value={sinceH}
           onChange={(e) => setSinceH(Number(e.target.value))}
-          className="rounded border border-black/10 bg-transparent px-2 py-1 dark:border-white/20"
+          className="min-w-0 flex-1 rounded border border-black/10 bg-transparent px-2 py-1 sm:flex-none dark:border-white/20"
         >
           <option value={0}>Vus : tous</option>
           <option value={24}>24 h</option>
@@ -602,7 +601,7 @@ export default function MapView({
         <select
           value={maxHop}
           onChange={(e) => setMaxHop(Number(e.target.value))}
-          className="rounded border border-black/10 bg-transparent px-2 py-1 dark:border-white/20"
+          className="min-w-0 flex-1 rounded border border-black/10 bg-transparent px-2 py-1 sm:flex-none dark:border-white/20"
         >
           <option value={9}>Toile : tous hops</option>
           <option value={0}>direct (0-hop)</option>

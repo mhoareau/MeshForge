@@ -120,7 +120,7 @@ export default async function ConfigPage({
     <div className="flex min-h-0 flex-1 flex-col">
       <SiteHeader active="/admin/config" />
 
-      <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-6">
+      <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-6 sm:px-6">
         <h2 className="mb-4 text-xl font-semibold">Configuration réseau</h2>
 
         {ok && (
@@ -170,7 +170,7 @@ export default async function ConfigPage({
             hint="Limite le déplacement hors de la zone. Cocher « carte ouverte » pour ne poser aucune limite (self-host hors Réunion)."
           >
             <form action={saveBounds} className="flex flex-col gap-2">
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 <label className="text-xs text-zinc-500">
                   Ouest
                   <input

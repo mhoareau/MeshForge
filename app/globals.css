@@ -51,3 +51,24 @@ body > * {
 ::selection {
   background: rgba(103, 234, 148, 0.25);
 }
+
+/* Fiche au survol d'un node : par défaut le popup maplibre passe SOUS les
+   pastilles (markers en z-index 1-2). On le remonte au-dessus, et on lui donne
+   un fond givré translucide : lisible, mais les nodes voisins et les toiles du
+   gateway restent devinables dessous (ne masque pas). */
+.mf-popup {
+  z-index: 100;
+}
+.mf-popup .maplibregl-popup-content {
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+.mf-popup .maplibregl-popup-tip {
+  border-top-color: rgba(255, 255, 255, 0.82);
+  border-bottom-color: rgba(255, 255, 255, 0.82);
+}

@@ -12,7 +12,7 @@ async function GatewayOverview() {
   const gateways = await getGatewayOverview();
   const now = new Date();
   return (
-    <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-6">
+    <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:px-6">
       <div className="mb-4 flex items-baseline justify-between">
         <h2 className="text-xl font-semibold">Gateways</h2>
         <Link
@@ -81,7 +81,7 @@ async function FramesView({ gateway }: { gateway: string }) {
   const title = gatewayId ? `Gateway ${gatewayId}` : "Flux global (tous gateways)";
 
   return (
-    <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-6">
+    <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6">
       <div className="mb-4 flex flex-wrap items-baseline gap-3">
         <Link
           href="/admin/trames"
