@@ -3,12 +3,6 @@ import SiteHeader from "@/components/SiteHeader";
 
 export const metadata = { title: "Mentions légales — MeshForge" };
 
-function Todo({ children }: { children: ReactNode }) {
-  return (
-    <span className="italic text-amber-400/90">[à compléter : {children}]</span>
-  );
-}
-
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="rounded-lg border border-white/10 bg-surface/40 p-5">

@@ -1,16 +1,25 @@
 import bcrypt from "bcrypt";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { newSessionToken, SESSION_TTL_MS } from "@/lib/auth";
 import { ADMIN_COOKIE, isAdmin } from "@/lib/admin";
 import { getContributorByUsername, canLogin } from "@/lib/queries/contributors";
+import { createRateLimiter, clientIp } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
 const DUMMY_HASH = bcrypt.hashSync("unused-placeholder", 12);
 
+// Anti-brute-force : 10 tentatives par IP / 15 min (singleton module). Vérifié
+// AVANT le bcrypt.compare -> coûte rien à soutenir sous attaque.
+const loginLimiter = createRateLimiter({ limit: 10, windowMs: 15 * 60 * 1000 });
+
 async function login(formData: FormData) {
   "use server";
+  const h = await headers();
+  const ip = clientIp(h.get("x-forwarded-for"), h.get("x-real-ip"));
+  if (!loginLimiter.check(ip).allowed) redirect("/admin/login?error=rate");
+
   const username = String(formData.get("username") ?? "");
   const password = String(formData.get("password") ?? "");
   const secret = process.env.ADMIN_SESSION_SECRET;
@@ -64,7 +73,9 @@ export default async function AdminLoginPage({
         />
         {error && (
           <p className="text-sm text-red-600 dark:text-red-400">
-            Identifiants invalides.
+            {error === "rate"
+              ? "Trop de tentatives. Réessaie dans quelques minutes."
+              : "Identifiants invalides."}
           </p>
         )}
         <button

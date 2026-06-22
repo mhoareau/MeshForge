@@ -26,7 +26,7 @@ export function isValidUsername(s: string): boolean {
   return /^[A-Za-z0-9_-]{3,32}$/.test(s);
 }
 
-// Validation email basique (anti-format absurde, pas une vérif de délivrabilité).
+// Validation email basique.
 export function isValidEmail(s: string): boolean {
   return s.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 }
