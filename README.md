@@ -198,8 +198,8 @@ yarn create-admin
 - Le broker prod utilise `mosquitto-go-auth`. Sa config est un template :
   `mosquitto/entrypoint.sh` remplace `__DB_PASSWORD__` au démarrage.
 - Les relais créent leurs identifiants MQTT via `/register`.
-- Canaux publics, bornes carte, zoom, seuils et mentions légales se règlent dans
-  `/admin/config`.
+- Canaux publics, bornes carte, zoom, seuils, mentions légales et onboarding MQTT
+  se règlent dans `/admin/config`.
 
 ---
 

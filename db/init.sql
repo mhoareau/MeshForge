@@ -128,5 +128,14 @@ INSERT INTO settings (key, value) VALUES
         "companyAddress": "À compléter",
         "hostingProvider": "À compléter",
         "hostingLocation": "À compléter"
+    }'::jsonb),
+    ('mqtt_onboarding', '{
+        "mobileBroker": "mqtt.la-forge-numerique.com:1883",
+        "webBroker": "91.134.54.125:1883",
+        "rootTopic": "msh/EU_868",
+        "encryptionEnabled": true,
+        "jsonOutputEnabled": true,
+        "tlsEnabled": false,
+        "mapReportEnabled": true
     }'::jsonb)
 ON CONFLICT (key) DO NOTHING;
