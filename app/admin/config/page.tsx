@@ -27,6 +27,14 @@ function doneLegal(error: string | null): never {
   );
 }
 
+function doneMqtt(error: string | null): never {
+  redirect(
+    error
+      ? `/admin/config?tab=mqtt&err=${encodeURIComponent(error)}`
+      : "/admin/config?tab=mqtt&ok=1",
+  );
+}
+
 async function saveThreshold(formData: FormData) {
   "use server";
   await requireAdmin();
@@ -111,6 +119,26 @@ async function saveLegal(formData: FormData) {
   doneLegal(error);
 }
 
+async function saveMqttOnboarding(formData: FormData) {
+  "use server";
+  await requireAdmin();
+  let error: string | null = null;
+  try {
+    await setSetting("mqtt_onboarding", {
+      mobileBroker: String(formData.get("mobileBroker") ?? ""),
+      webBroker: String(formData.get("webBroker") ?? ""),
+      rootTopic: String(formData.get("rootTopic") ?? ""),
+      encryptionEnabled: formData.get("encryptionEnabled") === "on",
+      jsonOutputEnabled: formData.get("jsonOutputEnabled") === "on",
+      tlsEnabled: formData.get("tlsEnabled") === "on",
+      mapReportEnabled: formData.get("mapReportEnabled") === "on",
+    });
+  } catch (e) {
+    error = (e as Error).message;
+  }
+  doneMqtt(error);
+}
+
 const numCls =
   "w-full rounded border border-black/15 bg-transparent px-2 py-1.5 text-sm outline-none focus:border-black/40 dark:border-white/20";
 const btnCls =
@@ -142,9 +170,10 @@ export default async function ConfigPage({
   if (!(await isAdmin())) redirect("/admin/login");
   const s = await getAllSettings();
   const { ok, err, tab } = await searchParams;
-  const activeTab = tab === "legal" ? "legal" : "network";
+  const activeTab = tab === "legal" || tab === "mqtt" ? tab : "network";
   const b = s.map_bounds;
   const legal = s.legal_info;
+  const mqtt = s.mqtt_onboarding;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -172,6 +201,16 @@ export default async function ConfigPage({
             }`}
           >
             Légal
+          </Link>
+          <Link
+            href="/admin/config?tab=mqtt"
+            className={`rounded-lg px-3 py-1.5 ${
+              activeTab === "mqtt"
+                ? "bg-zinc-900 text-white dark:bg-white dark:text-black"
+                : "border border-black/15 dark:border-white/20"
+            }`}
+          >
+            MQTT
           </Link>
         </nav>
 
@@ -297,7 +336,7 @@ export default async function ConfigPage({
             </form>
           </Section>
         </div>
-        ) : (
+        ) : activeTab === "legal" ? (
           <div className="flex flex-col gap-4">
             <Section
               title="Mentions légales"
@@ -354,6 +393,77 @@ export default async function ConfigPage({
                       defaultValue={legal.hostingLocation}
                       className={numCls}
                     />
+                  </label>
+                </div>
+                <div className="flex justify-end">
+                  <button className={btnCls}>Enregistrer</button>
+                </div>
+              </form>
+            </Section>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <Section
+              title="Onboarding MQTT"
+              hint="Valeurs affichées après inscription d'un relais. Utile pour adapter MeshForge à une autre instance."
+            >
+              <form action={saveMqttOnboarding} className="grid gap-3">
+                <label className="text-xs text-zinc-500">
+                  Broker app mobile
+                  <input
+                    name="mobileBroker"
+                    defaultValue={mqtt.mobileBroker}
+                    className={numCls}
+                  />
+                </label>
+                <label className="text-xs text-zinc-500">
+                  Broker interface web
+                  <input
+                    name="webBroker"
+                    defaultValue={mqtt.webBroker}
+                    className={numCls}
+                  />
+                </label>
+                <label className="text-xs text-zinc-500">
+                  Sujet principal
+                  <input
+                    name="rootTopic"
+                    defaultValue={mqtt.rootTopic}
+                    className={numCls}
+                  />
+                </label>
+                <div className="grid gap-2 text-sm sm:grid-cols-2">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      name="encryptionEnabled"
+                      defaultChecked={mqtt.encryptionEnabled}
+                    />
+                    Chiffrement activé
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      name="jsonOutputEnabled"
+                      defaultChecked={mqtt.jsonOutputEnabled}
+                    />
+                    Sortie JSON activée
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      name="tlsEnabled"
+                      defaultChecked={mqtt.tlsEnabled}
+                    />
+                    TLS activé
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      name="mapReportEnabled"
+                      defaultChecked={mqtt.mapReportEnabled}
+                    />
+                    Rapport cartographique
                   </label>
                 </div>
                 <div className="flex justify-end">

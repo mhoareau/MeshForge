@@ -16,7 +16,8 @@ export type SettingKey =
   | "public_channels"
   | "map_bounds"
   | "map_min_zoom"
-  | "legal_info";
+  | "legal_info"
+  | "mqtt_onboarding";
 
 export interface LegalInfo {
   companyName: string;
@@ -27,6 +28,16 @@ export interface LegalInfo {
   hostingLocation: string;
 }
 
+export interface MqttOnboarding {
+  mobileBroker: string;
+  webBroker: string;
+  rootTopic: string;
+  encryptionEnabled: boolean;
+  jsonOutputEnabled: boolean;
+  tlsEnabled: boolean;
+  mapReportEnabled: boolean;
+}
+
 // Type de la valeur pour chaque clé.
 interface SettingValues {
   misconfig_max_packets_24h: number;
@@ -34,6 +45,7 @@ interface SettingValues {
   map_bounds: MapBounds | null;
   map_min_zoom: number;
   legal_info: LegalInfo;
+  mqtt_onboarding: MqttOnboarding;
 }
 
 export const DEFAULT_MAX_PACKETS_24H = 1000;
@@ -47,6 +59,15 @@ const DEFAULT_LEGAL_INFO: LegalInfo = {
   companyAddress: "À compléter",
   hostingProvider: "À compléter",
   hostingLocation: "À compléter",
+};
+const DEFAULT_MQTT_ONBOARDING: MqttOnboarding = {
+  mobileBroker: "mqtt.la-forge-numerique.com:1883",
+  webBroker: "91.134.54.125:1883",
+  rootTopic: "msh/EU_868",
+  encryptionEnabled: true,
+  jsonOutputEnabled: true,
+  tlsEnabled: false,
+  mapReportEnabled: true,
 };
 
 // Noms de canaux : alphanumérique + _ - (anti-injection : on n'accepte rien d'autre).
@@ -198,6 +219,56 @@ export function requireLegalInfo(raw: unknown): LegalInfo {
   return info;
 }
 
+function isMqttOnboarding(
+  raw: unknown,
+): raw is Record<keyof MqttOnboarding, string | boolean> {
+  if (!raw || typeof raw !== "object") return false;
+  const o = raw as Record<string, unknown>;
+  return (
+    typeof o.mobileBroker === "string" &&
+    typeof o.webBroker === "string" &&
+    typeof o.rootTopic === "string" &&
+    typeof o.encryptionEnabled === "boolean" &&
+    typeof o.jsonOutputEnabled === "boolean" &&
+    typeof o.tlsEnabled === "boolean" &&
+    typeof o.mapReportEnabled === "boolean"
+  );
+}
+
+function pickMqttOnboarding(
+  raw: Record<keyof MqttOnboarding, string | boolean>,
+): MqttOnboarding {
+  return {
+    mobileBroker: String(raw.mobileBroker).trim(),
+    webBroker: String(raw.webBroker).trim(),
+    rootTopic: String(raw.rootTopic).trim(),
+    encryptionEnabled: Boolean(raw.encryptionEnabled),
+    jsonOutputEnabled: Boolean(raw.jsonOutputEnabled),
+    tlsEnabled: Boolean(raw.tlsEnabled),
+    mapReportEnabled: Boolean(raw.mapReportEnabled),
+  };
+}
+
+export function parseMqttOnboarding(
+  raw: unknown,
+  fallback: MqttOnboarding,
+): MqttOnboarding {
+  return isMqttOnboarding(raw) ? pickMqttOnboarding(raw) : fallback;
+}
+
+export function requireMqttOnboarding(raw: unknown): MqttOnboarding {
+  if (!isMqttOnboarding(raw)) {
+    throw new Error("configuration MQTT invalide : objet incomplet");
+  }
+  const info = pickMqttOnboarding(raw);
+  for (const field of ["mobileBroker", "webBroker", "rootTopic"] as const) {
+    if (!info[field] || info[field].length > 120) {
+      throw new Error("configuration MQTT invalide : champ vide ou trop long");
+    }
+  }
+  return info;
+}
+
 interface Spec<K extends SettingKey> {
   default: SettingValues[K];
   parseStored: (raw: unknown) => SettingValues[K]; // lecture
@@ -229,6 +300,11 @@ const SPECS: { [K in SettingKey]: Spec<K> } = {
     default: DEFAULT_LEGAL_INFO,
     parseStored: (raw) => parseLegalInfo(raw, DEFAULT_LEGAL_INFO),
     validateInput: (raw) => requireLegalInfo(raw),
+  },
+  mqtt_onboarding: {
+    default: DEFAULT_MQTT_ONBOARDING,
+    parseStored: (raw) => parseMqttOnboarding(raw, DEFAULT_MQTT_ONBOARDING),
+    validateInput: (raw) => requireMqttOnboarding(raw),
   },
 };
 

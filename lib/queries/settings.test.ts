@@ -10,6 +10,8 @@ import {
   requireZoom,
   parseLegalInfo,
   requireLegalInfo,
+  parseMqttOnboarding,
+  requireMqttOnboarding,
 } from "./settings";
 
 // Lecture tolérante d'une valeur stockée (JSONB) : invalide -> fallback.
@@ -169,6 +171,59 @@ describe("parseLegalInfo / requireLegalInfo — mentions légales", () => {
     expect(() => requireLegalInfo({ ...LEGAL_FALLBACK, companyName: "" })).toThrow();
     expect(() =>
       requireLegalInfo({ ...LEGAL_FALLBACK, companyAddress: "x".repeat(501) }),
+    ).toThrow();
+  });
+});
+
+const MQTT_FALLBACK = {
+  mobileBroker: "mqtt.la-forge-numerique.com:1883",
+  webBroker: "91.134.54.125:1883",
+  rootTopic: "msh/EU_868",
+  encryptionEnabled: true,
+  jsonOutputEnabled: true,
+  tlsEnabled: false,
+  mapReportEnabled: true,
+};
+
+describe("parseMqttOnboarding / requireMqttOnboarding", () => {
+  it("lecture : garde et trim les champs attendus", () => {
+    expect(
+      parseMqttOnboarding(
+        {
+          mobileBroker: " mqtt.example.com:1883 ",
+          webBroker: " 192.0.2.10:1883 ",
+          rootTopic: " msh/EU_868 ",
+          encryptionEnabled: true,
+          jsonOutputEnabled: true,
+          tlsEnabled: false,
+          mapReportEnabled: true,
+          extra: "ignoré",
+        },
+        MQTT_FALLBACK,
+      ),
+    ).toEqual({
+      mobileBroker: "mqtt.example.com:1883",
+      webBroker: "192.0.2.10:1883",
+      rootTopic: "msh/EU_868",
+      encryptionEnabled: true,
+      jsonOutputEnabled: true,
+      tlsEnabled: false,
+      mapReportEnabled: true,
+    });
+  });
+
+  it("lecture : retombe sur le fallback si l'objet est incomplet", () => {
+    expect(parseMqttOnboarding({ rootTopic: "msh/EU_868" }, MQTT_FALLBACK)).toEqual(
+      MQTT_FALLBACK,
+    );
+  });
+
+  it("écriture : refuse les champs vides ou trop longs", () => {
+    expect(() =>
+      requireMqttOnboarding({ ...MQTT_FALLBACK, mobileBroker: "" }),
+    ).toThrow();
+    expect(() =>
+      requireMqttOnboarding({ ...MQTT_FALLBACK, rootTopic: "x".repeat(121) }),
     ).toThrow();
   });
 });
