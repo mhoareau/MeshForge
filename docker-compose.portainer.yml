@@ -37,6 +37,8 @@ services:
     image: meshforge-mqtt:latest
     container_name: meshforge-mqtt
     restart: unless-stopped
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD:-meshforge}
     ports:
       - "1883:1883" # relais Meshtastic externes (uplink MQTT)
     depends_on:

@@ -62,12 +62,14 @@ CREATE TABLE IF NOT EXISTS nodes (
     last_seen     TIMESTAMPTZ,
     first_seen    TIMESTAMPTZ DEFAULT NOW(),
     excluded      BOOLEAN NOT NULL DEFAULT FALSE,  -- opt-out RGPD (droit de retrait)
-    anonymized    BOOLEAN NOT NULL DEFAULT FALSE   -- RGPD : noms effacés DÉFINITIVEMENT
+    anonymized    BOOLEAN NOT NULL DEFAULT FALSE,  -- RGPD : noms effacés DÉFINITIVEMENT
+    gateway_override BOOLEAN                        -- NULL=auto, TRUE/FALSE=forcé admin
 );
 
 -- Idempotent pour les bases existantes (RGPD, Phase 5).
 ALTER TABLE nodes ADD COLUMN IF NOT EXISTS excluded BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE nodes ADD COLUMN IF NOT EXISTS anonymized BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE nodes ADD COLUMN IF NOT EXISTS gateway_override BOOLEAN;
 -- Colonne morte retirée : la visibilité ne dépend QUE de excluded + règles privacy.
 ALTER TABLE nodes DROP COLUMN IF EXISTS share_on_map;
 -- is_mobile par défaut prudent (privacy) : flou ~0.5 km sauf relais fixe confirmé.

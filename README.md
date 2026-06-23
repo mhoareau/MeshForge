@@ -122,7 +122,7 @@ Un **override** (`docker-compose.prod.yml`) ajoute, par-dessus l'infra : le brok
 
 ```bash
 cp .env.example .env          # tout est dans .env : DB_PASSWORD + secrets app
-#   → éditer .env avec les vraies valeurs (ADMIN_SESSION_SECRET, LEGAL_*, creds MQTT…) + VOIR PLUS BAS POUR CONNEXION BROKER
+#   → éditer .env avec les vraies valeurs (ADMIN_SESSION_SECRET, LEGAL_*, creds MQTT…)
 
 yarn docker:prod              # build + lance db + broker(go-auth) + app + worker
 
@@ -132,7 +132,7 @@ docker compose exec app yarn create-admin   # créer 1er compte admin pour le Wo
 docker compose exec app yarn create-admin   # créer 2nd compte admin pour l'administration web
 ```
 
-- ⚠️ **Connexion DB du broker** : `mosquitto.prod.conf` porte les identifiants Postgres **en dur** (`auth_opt_pg_host/port/dbname/user/password`, défaut `meshforge`). Mosquitto **ne lit pas** les variables d'env → si on change `DB_PASSWORD` (ou user/dbname) dans `.env`, il faut **recopier à la main** dans `mosquitto.prod.conf`, sinon le broker ne peut pas authentifier les relais.
+- **Connexion DB du broker** : `mosquitto.prod.conf` est un template committable. Au démarrage, `mosquitto/entrypoint.sh` remplace `__DB_PASSWORD__` par `DB_PASSWORD` et écrit la config rendue dans `/tmp/mosquitto.conf` avant de lancer Mosquitto.
 - ⚠️ **Worker** : il doit _subscribe_, donc s'authentifier → renseigne `MQTT_USERNAME`/`MQTT_PASSWORD` (un compte **ADMIN**) dans `.env` après le `create-admin`, puis `docker compose restart worker`.
 - L'app écoute sur **:3000** (à placer derrière un reverse proxy TLS).
 - Les conteneurs joignent db/broker par leur **nom de service** : `DATABASE_URL`/`MQTT_URL` sont surchargés dans le compose, rien à changer.
