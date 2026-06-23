@@ -95,6 +95,7 @@ export interface NodeDetail {
   firstSeen: string | null; // ISO 8601
   isMobile: boolean;
   isGateway: boolean;
+  gatewayOverride: boolean | null; // null = auto, true/false = override admin
   lastSnr: number | null;
   excluded: boolean; // opt-out RGPD (droit de retrait)
 }

@@ -6,6 +6,7 @@ import { isAdmin } from "@/lib/admin";
 import {
   getNodeById,
   setNodeExcluded,
+  setNodeGatewayOverride,
   setNodeMobile,
   anonymizeNode,
   deleteNode,
@@ -61,6 +62,7 @@ export default async function NodePage({
   const here = `/node/${encodeURIComponent(nodeId)}`;
   const wasExcluded = node.excluded;
   const wasMobile = node.isMobile;
+  const gatewayOverride = node.gatewayOverride;
 
   // Server Actions RGPD — chacune re-vérifie isAdmin() (endpoint à part entière).
   async function toggleExcluded() {
@@ -74,6 +76,24 @@ export default async function NodePage({
     "use server";
     if (!(await isAdmin())) redirect("/admin/login");
     await setNodeMobile(nodeId, !wasMobile);
+    redirect(here);
+  }
+  async function forceGateway() {
+    "use server";
+    if (!(await isAdmin())) redirect("/admin/login");
+    await setNodeGatewayOverride(nodeId, true);
+    redirect(here);
+  }
+  async function forceNotGateway() {
+    "use server";
+    if (!(await isAdmin())) redirect("/admin/login");
+    await setNodeGatewayOverride(nodeId, false);
+    redirect(here);
+  }
+  async function resetGatewayAuto() {
+    "use server";
+    if (!(await isAdmin())) redirect("/admin/login");
+    await setNodeGatewayOverride(nodeId, null);
     redirect(here);
   }
   async function anonymize() {
@@ -217,6 +237,48 @@ export default async function NodePage({
                     : "Repasser en position approximative"}
                 </button>
               </form>
+            </div>
+          </section>
+        )}
+
+        {admin && (
+          <section className="mt-8 rounded-lg border border-black/10 p-4 dark:border-white/15">
+            <h3 className="text-sm font-semibold">Statut gateway (admin)</h3>
+            <p className="mt-2 text-xs text-zinc-500">
+              En auto, MeshForge marque un node comme gateway s’il apparaît dans
+              `packets.gateway_id`. L’override sert à corriger manuellement un
+              cas ambigu.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <span className="text-sm">
+                Actuel :{" "}
+                <strong>
+                  {gatewayOverride === null
+                    ? node.isGateway
+                      ? "gateway (auto)"
+                      : "non-gateway (auto)"
+                    : gatewayOverride
+                      ? "gateway (forcé)"
+                      : "non-gateway (forcé)"}
+                </strong>
+              </span>
+              <form action={forceGateway}>
+                <button className="rounded-lg border border-black/15 px-3 py-1.5 text-sm dark:border-white/20">
+                  Marquer gateway
+                </button>
+              </form>
+              <form action={forceNotGateway}>
+                <button className="rounded-lg border border-black/15 px-3 py-1.5 text-sm dark:border-white/20">
+                  Marquer non-gateway
+                </button>
+              </form>
+              {gatewayOverride !== null && (
+                <form action={resetGatewayAuto}>
+                  <button className="rounded-lg border border-black/15 px-3 py-1.5 text-sm dark:border-white/20">
+                    Revenir en auto
+                  </button>
+                </form>
+              )}
             </div>
           </section>
         )}

@@ -12,9 +12,9 @@
 
 services:
   mosquitto:
-    image: iegomez/mosquitto-go-auth:latest
-    volumes:
-      - ./mosquitto/config/mosquitto.prod.conf:/etc/mosquitto/mosquitto.conf:ro
+    image: meshforge-mqtt:latest
+    build: ./mosquitto
+    env_file: [.env] # DB_PASSWORD -> rendu dans /tmp/mosquitto.conf au démarrage
     depends_on:
       - timescaledb
 

@@ -1,0 +1,61 @@
+import type { PublicNode } from "@/types";
+import { nodeColor } from "@/lib/nodeColor";
+
+export type LngLat = [number, number];
+
+export type MarkerNode = Pick<
+  PublicNode,
+  | "nodeId"
+  | "longName"
+  | "shortName"
+  | "lat"
+  | "lon"
+  | "batteryPct"
+  | "lastSeen"
+> & {
+  isGateway?: boolean;
+  lastSnr?: number | null;
+  role?: string | null;
+  isMobile?: boolean;
+};
+
+export function shortLabel(
+  nodeId: string,
+  shortName: string | null | undefined,
+): string {
+  const s = shortName?.trim();
+  return s && s.length > 0 ? s : nodeId.replace(/^!/, "").slice(-4);
+}
+
+export function nodeFeature(n: MarkerNode): GeoJSON.Feature {
+  const isGateway = n.isGateway ?? false;
+  return {
+    type: "Feature",
+    geometry: { type: "Point", coordinates: [n.lon, n.lat] },
+    properties: {
+      nodeId: n.nodeId,
+      label: shortLabel(n.nodeId, n.shortName),
+      longName: n.longName ?? "",
+      shortName: n.shortName ?? "",
+      lastSeen: n.lastSeen ?? "",
+      lastSnr: n.lastSnr ?? null,
+      role: n.role ?? "",
+      isGateway,
+      isMobile: n.isMobile ?? false,
+      color: nodeColor(n.nodeId, isGateway),
+    },
+  };
+}
+
+export const lerp = (a: LngLat, b: LngLat, t: number): LngLat => [
+  a[0] + (b[0] - a[0]) * t,
+  a[1] + (b[1] - a[1]) * t,
+];
+
+export function lineFeature(from: LngLat, to: LngLat, hop: number): GeoJSON.Feature {
+  return {
+    type: "Feature",
+    properties: { hop },
+    geometry: { type: "LineString", coordinates: [from, to] },
+  };
+}

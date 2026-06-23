@@ -87,7 +87,10 @@ const SELECT_NODES_OVERVIEW = `
     (n.long_name IS NOT NULL)                           AS "hasNodeinfo",
     (n.last_lat IS NOT NULL AND n.last_lon IS NOT NULL) AS "hasPosition",
     (n.last_seen > NOW() - INTERVAL '24 hours')         AS "active",
-    EXISTS (SELECT 1 FROM packets g WHERE g.gateway_id = n.node_id) AS "isGateway",
+    COALESCE(
+      n.gateway_override,
+      EXISTS (SELECT 1 FROM packets g WHERE g.gateway_id = n.node_id)
+    ) AS "isGateway",
     COALESCE(tx.cnt, 0)                                  AS "packets24h"
   FROM nodes n
   LEFT JOIN (

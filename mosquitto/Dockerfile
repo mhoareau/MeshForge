@@ -7,4 +7,8 @@
 # retrouvait montée comme un dossier vide et le broker crashait en boucle.
 # `build:` fonctionne, lui (le contexte est envoyé au démon) → on COPIE la config.
 FROM iegomez/mosquitto-go-auth:latest
-COPY config/mosquitto.prod.conf /etc/mosquitto/mosquitto.conf
+COPY config/mosquitto.prod.conf /etc/mosquitto/mosquitto.conf.template
+COPY entrypoint.sh /entrypoint.sh
+
+ENTRYPOINT ["sh", "/entrypoint.sh"]
+CMD ["mosquitto", "-c", "/tmp/mosquitto.conf"]

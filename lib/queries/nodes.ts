@@ -60,6 +60,13 @@ interface UpsertedNodeRow {
 
 const NOTIFY_NODE_UPDATE = `SELECT pg_notify('node_update', $1)`;
 
+export function resolveGatewayStatus(
+  gatewayOverride: boolean | null,
+  autoIsGateway: boolean,
+): boolean {
+  return gatewayOverride ?? autoIsGateway;
+}
+
 export async function upsertNode(p: ParsedPacket): Promise<void> {
   const { rows } = await pool.query<UpsertedNodeRow>(UPSERT_NODE, [
     p.nodeId,
@@ -109,7 +116,10 @@ const SELECT_PUBLIC_NODES = `
     n.last_battery AS "batteryPct",
     n.last_seen    AS "lastSeen",
     n.is_mobile    AS "isMobile",
-    EXISTS (SELECT 1 FROM packets p WHERE p.gateway_id = n.node_id) AS "isGateway",
+    COALESCE(
+      n.gateway_override,
+      EXISTS (SELECT 1 FROM packets p WHERE p.gateway_id = n.node_id)
+    ) AS "isGateway",
     (SELECT p.snr FROM packets p
        WHERE p.node_id = n.node_id AND p.snr IS NOT NULL
        ORDER BY p.received_at DESC LIMIT 1)                         AS "lastSnr"
@@ -153,8 +163,12 @@ const SELECT_NODE_BY_ID = `
     last_seen    AS "lastSeen",
     first_seen   AS "firstSeen",
     is_mobile    AS "isMobile",
+    gateway_override AS "gatewayOverride",
     excluded     AS "excluded",
-    EXISTS (SELECT 1 FROM packets p WHERE p.gateway_id = nodes.node_id)  AS "isGateway",
+    COALESCE(
+      gateway_override,
+      EXISTS (SELECT 1 FROM packets p WHERE p.gateway_id = nodes.node_id)
+    ) AS "isGateway",
     (SELECT p.snr FROM packets p
        WHERE p.node_id = nodes.node_id AND p.snr IS NOT NULL
        ORDER BY p.received_at DESC LIMIT 1)                              AS "lastSnr"
@@ -201,6 +215,16 @@ export async function setNodeMobile(
   await pool.query("UPDATE nodes SET is_mobile = $2 WHERE node_id = $1", [
     nodeId,
     isMobile,
+  ]);
+}
+
+export async function setNodeGatewayOverride(
+  nodeId: string,
+  gatewayOverride: boolean | null,
+): Promise<void> {
+  await pool.query("UPDATE nodes SET gateway_override = $2 WHERE node_id = $1", [
+    nodeId,
+    gatewayOverride,
   ]);
 }
 
