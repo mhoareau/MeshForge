@@ -5,7 +5,7 @@ type MapLegendProps = {
 
 export function MapLegend({ open, onToggle }: MapLegendProps) {
   return (
-    <div className="pointer-events-none absolute bottom-6 left-2 right-2 z-[120] sm:right-auto">
+    <div className="pointer-events-none absolute bottom-14 sm:bottom-6 left-2 right-2 z-[120] sm:right-auto">
       {open && (
         <div className="pointer-events-auto mb-2 w-fit max-w-full rounded-lg bg-white/95 px-3 py-2 text-xs leading-tight text-zinc-800 shadow ring-1 ring-black/10 dark:bg-zinc-900/90 dark:text-zinc-100 dark:ring-white/15">
           <div className="grid gap-1.5">

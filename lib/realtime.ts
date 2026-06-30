@@ -31,6 +31,7 @@ export function parseNotification(payload: string): NodeUpdate | null {
     lon: o.lon,
     batteryPct: typeof o.batteryPct === "number" ? o.batteryPct : null,
     lastSeen: typeof o.lastSeen === "string" ? o.lastSeen : null,
+    isGateway: typeof o.isGateway === "boolean" ? o.isGateway : false,
   };
 }
 
