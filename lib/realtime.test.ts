@@ -11,6 +11,7 @@ const valid = JSON.stringify({
   lon: 55.5,
   batteryPct: 80,
   lastSeen: "2026-06-20T10:00:00.000Z",
+  isGateway: true,
 });
 
 describe("parseNotification — payload NOTIFY 'node_update'", () => {
@@ -21,6 +22,7 @@ describe("parseNotification — payload NOTIFY 'node_update'", () => {
     expect(u?.lat).toBe(-21.1);
     expect(u?.batteryPct).toBe(80);
     expect(u?.lastSeen).toBe("2026-06-20T10:00:00.000Z");
+    expect(u?.isGateway).toBe(true);
   });
 
   it("renvoie null sur JSON malformé", () => {
@@ -41,5 +43,6 @@ describe("parseNotification — payload NOTIFY 'node_update'", () => {
     expect(u?.role).toBeNull();
     expect(u?.batteryPct).toBeNull();
     expect(u?.lastSeen).toBeNull();
+    expect(u?.isGateway).toBe(false);
   });
 });

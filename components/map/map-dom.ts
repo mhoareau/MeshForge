@@ -19,6 +19,7 @@ export function pillElement(p: Record<string, unknown>): HTMLElement {
   el.style.whiteSpace = "nowrap";
   el.style.userSelect = "none";
   el.style.zIndex = isGateway ? "2" : "1";
+  el.dataset.gateway = String(isGateway);
   el.dataset.w = String(
     String(p.label ?? "").length * (isGateway ? 8.5 : 7) +
       (isGateway ? 20 : 16),
@@ -45,6 +46,7 @@ export function clusterElement(p: Record<string, unknown>): HTMLElement {
   el.style.border = "2px solid #fff";
   el.style.boxShadow = "0 1px 4px rgba(0,0,0,0.4)";
   el.style.cursor = "pointer";
+  el.dataset.gateway = String(hasGateway);
   return el;
 }
 

@@ -86,7 +86,7 @@ export default function MobileMenu({
             {adminLinks.length > 0 && (
               <>
                 <span className="mt-1 px-2 pt-2 font-mono text-[10px] uppercase tracking-wider text-muted">
-                  Admin
+                  Panneau Admin
                 </span>
                 {adminLinks.map((l) => (
                   <Link

@@ -156,6 +156,7 @@ export function useMapController({
       nodesSource()?.setData({ type: "FeatureCollection", features });
     };
     refreshRef.current = refreshNodes;
+    let observationsTimer: number | null = null;
     const posById = (nodeId: string): LngLat | null => {
       const f = nodesById.current.get(nodeId);
       return f && f.geometry.type === "Point"
@@ -264,7 +265,15 @@ export function useMapController({
         const id = isCluster ? `c${p.cluster_id}` : `n${p.nodeId}`;
         if (next[id]) continue;
 
-        let marker = markers[id];
+        let marker: maplibregl.Marker | undefined = markers[id];
+        const gatewayState = isCluster
+          ? Number(p.hasGateway ?? 0) > 0
+          : p.isGateway === true;
+        if (marker?.getElement().dataset.gateway !== String(gatewayState)) {
+          marker?.remove();
+          delete markers[id];
+          marker = undefined;
+        }
         if (!marker) {
           const el = isCluster ? clusterElement(p) : pillElement(p);
           marker = markers[id] = new maplibregl.Marker({
@@ -320,32 +329,7 @@ export function useMapController({
       applyBridge();
     };
 
-    map.on("load", () => {
-      map.addSource("nodes", {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-        cluster: true,
-        clusterRadius: 50,
-        clusterMaxZoom: 10,
-        clusterProperties: {
-          hasGateway: ["max", ["case", ["get", "isGateway"], 1, 0]],
-        },
-      });
-      map.addSource("mesh", {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      });
-
-      map.addLayer({
-        id: "nodes-hit",
-        type: "circle",
-        source: "nodes",
-        paint: { "circle-radius": 1, "circle-opacity": 0 },
-      });
-      map.addLayer(MESH_DIRECT_LAYER);
-      map.addLayer(MESH_RELAY_LAYER);
-      refreshNodes();
-
+    const loadObservations = (): void => {
       fetch("/api/observations")
         .then((r) => r.json() as Promise<Observation[]>)
         .then((obs) => {
@@ -372,6 +356,39 @@ export function useMapController({
           refreshNodes();
         })
         .catch(() => {});
+    };
+
+    const scheduleObservationsRefresh = (): void => {
+      if (observationsTimer !== null) window.clearTimeout(observationsTimer);
+      observationsTimer = window.setTimeout(loadObservations, 1500);
+    };
+
+    map.on("load", () => {
+      map.addSource("nodes", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+        cluster: true,
+        clusterRadius: 50,
+        clusterMaxZoom: 10,
+        clusterProperties: {
+          hasGateway: ["max", ["case", ["get", "isGateway"], 1, 0]],
+        },
+      });
+      map.addSource("mesh", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+
+      map.addLayer({
+        id: "nodes-hit",
+        type: "circle",
+        source: "nodes",
+        paint: { "circle-radius": 1, "circle-opacity": 0 },
+      });
+      map.addLayer(MESH_DIRECT_LAYER);
+      map.addLayer(MESH_RELAY_LAYER);
+      refreshNodes();
+      loadObservations();
     });
 
     map.on("data", (e) => {
@@ -406,6 +423,7 @@ export function useMapController({
           p.longName = u.longName ?? p.longName;
           p.shortName = u.shortName ?? p.shortName;
           p.role = u.role ?? p.role;
+          p.isGateway = u.isGateway;
           p.label = shortLabel(
             u.nodeId,
             (u.shortName ?? p.shortName) as string,
@@ -416,6 +434,7 @@ export function useMapController({
         }
         updateRoleOptions();
         refreshNodes();
+        scheduleObservationsRefresh();
       } catch {}
     });
 
@@ -423,6 +442,7 @@ export function useMapController({
       alive = false;
       refreshRef.current = () => {};
       es.close();
+      if (observationsTimer !== null) window.clearTimeout(observationsTimer);
       if (meshRaf !== null) cancelAnimationFrame(meshRaf);
       Object.values(markers).forEach((m) => m.remove());
       map.remove();

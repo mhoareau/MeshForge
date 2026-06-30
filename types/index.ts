@@ -206,6 +206,7 @@ export interface NodeUpdate {
   lon: number;
   batteryPct: number | null;
   lastSeen: string | null; // ISO 8601
+  isGateway: boolean;
 }
 
 // Statistiques agrégées (API /api/stats + barre de stats SSR de la page).

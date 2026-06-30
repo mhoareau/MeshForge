@@ -43,7 +43,11 @@ const UPSERT_NODE = `
     last_battery AS "batteryPct",
     last_seen    AS "lastSeen",
     is_mobile    AS "isMobile",
-    excluded     AS "excluded"
+    excluded     AS "excluded",
+    COALESCE(
+      gateway_override,
+      EXISTS (SELECT 1 FROM packets p WHERE p.gateway_id = nodes.node_id)
+    ) AS "isGateway"
 `;
 
 // État fusionné renvoyé par l'upsert. lastSeen = Date (TIMESTAMPTZ côté pg).
@@ -58,6 +62,7 @@ interface UpsertedNodeRow {
   lastSeen: Date | null;
   isMobile: boolean;
   excluded: boolean;
+  isGateway: boolean;
 }
 
 const NOTIFY_NODE_UPDATE = `SELECT pg_notify('node_update', $1)`;
@@ -66,6 +71,25 @@ const UPSERT_GATEWAY_NODE = `
   VALUES ($1, NOW())
   ON CONFLICT (node_id) DO UPDATE SET
     last_seen = EXCLUDED.last_seen
+`;
+const SELECT_NODE_UPDATE = `
+  SELECT
+    node_id      AS "nodeId",
+    long_name    AS "longName",
+    short_name   AS "shortName",
+    role         AS "role",
+    last_lat     AS "lat",
+    last_lon     AS "lon",
+    last_battery AS "batteryPct",
+    last_seen    AS "lastSeen",
+    is_mobile    AS "isMobile",
+    excluded     AS "excluded",
+    COALESCE(
+      gateway_override,
+      EXISTS (SELECT 1 FROM packets p WHERE p.gateway_id = nodes.node_id)
+    ) AS "isGateway"
+  FROM nodes
+  WHERE node_id = $1
 `;
 
 export function resolveGatewayStatus(
@@ -95,31 +119,37 @@ export async function upsertNode(p: ParsedPacket): Promise<void> {
     p.batteryPct,
   ]);
 
-  // Barrière privacy AU NIVEAU DU TEMPS RÉEL : on ne pousse en SSE que les
-  // nodes publics (opt-in, fixes, localisés). Même règle que l'API REST.
-  const row = rows[0];
-  if (row && isPubliclyVisible(row)) {
-    // Mobile : position floutée (cellule ~1,5 km constante) avant exposition.
-    const pos = row.isMobile
-      ? snapToGrid(row.lat as number, row.lon as number)
-      : { lat: row.lat as number, lon: row.lon as number };
-    const update: NodeUpdate = {
-      nodeId: row.nodeId,
-      longName: row.longName,
-      shortName: row.shortName,
-      role: row.role,
-      lat: pos.lat,
-      lon: pos.lon,
-      batteryPct: row.batteryPct,
-      lastSeen: row.lastSeen ? row.lastSeen.toISOString() : null,
-    };
-    await pool.query(NOTIFY_NODE_UPDATE, [JSON.stringify(update)]);
-  }
+  await notifyNodeUpdate(rows[0]);
 }
 
 export async function upsertGatewayNode(p: ParsedPacket): Promise<void> {
   if (!shouldUpsertGatewayNode(p.gatewayId, p.nodeId)) return;
   await pool.query(UPSERT_GATEWAY_NODE, [p.gatewayId]);
+  const { rows } = await pool.query<UpsertedNodeRow>(SELECT_NODE_UPDATE, [p.gatewayId]);
+  await notifyNodeUpdate(rows[0]);
+}
+
+async function notifyNodeUpdate(row: UpsertedNodeRow | undefined): Promise<void> {
+  // Barrière privacy AU NIVEAU DU TEMPS RÉEL : on ne pousse en SSE que les
+  // nodes publics (opt-in, fixes, localisés). Même règle que l'API REST.
+  if (!row || !isPubliclyVisible(row)) return;
+
+  // Mobile : position floutée (cellule ~1,5 km constante) avant exposition.
+  const pos = row.isMobile
+    ? snapToGrid(row.lat as number, row.lon as number)
+    : { lat: row.lat as number, lon: row.lon as number };
+  const update: NodeUpdate = {
+    nodeId: row.nodeId,
+    longName: row.longName,
+    shortName: row.shortName,
+    role: row.role,
+    lat: pos.lat,
+    lon: pos.lon,
+    batteryPct: row.batteryPct,
+    lastSeen: row.lastSeen ? row.lastSeen.toISOString() : null,
+    isGateway: row.isGateway,
+  };
+  await pool.query(NOTIFY_NODE_UPDATE, [JSON.stringify(update)]);
 }
 
 // Nodes affichés sur la carte publique (PUBLIC PAR DÉFAUT : tous les localisés).
