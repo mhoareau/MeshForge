@@ -114,6 +114,19 @@ export interface Observation {
   snr: number | null;
 }
 
+// Lien radio DIRECT (hop 0) agrégé sur une fenêtre (API /api/links).
+// Non-orienté : la paire {aId, bId} combine les deux sens. snr = MÉDIANE des SNR
+// des paquets directs de la fenêtre (null si aucun SNR, ex: traceroute JSON).
+// packets = nb de paquets RÉELS échangés (les arêtes synthétiques NeighborInfo/
+// Traceroute révèlent le lien mais ne comptent pas comme échange). Positions
+// résolues côté client (mêmes marqueurs -> respecte le floutage des mobiles).
+export interface DirectLink {
+  aId: string;
+  bId: string;
+  snr: number | null;
+  packets: number;
+}
+
 // Page détail node — point de la série journalière (courbes 30j).
 export interface NodeHistoryPoint {
   day: string; // YYYY-MM-DD

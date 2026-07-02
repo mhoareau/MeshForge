@@ -3,7 +3,13 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 import maplibregl from "maplibre-gl";
-import type { PublicNode, NodeUpdate, Observation, MapBounds } from "@/types";
+import type {
+  PublicNode,
+  NodeUpdate,
+  Observation,
+  DirectLink,
+  MapBounds,
+} from "@/types";
 import {
   nodeFeature,
   shortLabel,
@@ -13,6 +19,12 @@ import {
 import type { LngLat } from "@/components/map/map-data";
 import { resolvePillSpread } from "@/components/map/pill-spread";
 import {
+  bezierApex,
+  controlPoint,
+  quadBezier,
+  type Pt,
+} from "@/components/map/link-geometry";
+import {
   clusterElement,
   hoverCard,
   pillElement,
@@ -20,8 +32,14 @@ import {
 import {
   MESH_DIRECT_LAYER,
   MESH_RELAY_LAYER,
+  LINKS_LINE_LAYER,
+  LINKS_BADGE_LAYER,
 } from "@/components/map/map-layers";
 import type { HopFilter } from "@/components/map/MapFilters";
+
+// Amplitude (px) de la courbure d'un lien direct : assez pour rendre visible un
+// lien entre pastilles empilées, sans encombrer les liens longs.
+const LINK_ARC_PX = 16;
 
 const REUNION_CENTER: [number, number] = [55.536, -21.115];
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
@@ -31,6 +49,8 @@ type MapFiltersState = {
   role: string;
   sinceH: number;
   hopFilter: HopFilter;
+  linksEnabled: boolean;
+  linksSinceH: number;
 };
 
 type UseMapControllerProps = {
@@ -53,6 +73,10 @@ export function useMapController({
   );
   const minHopRef = useRef<Map<string, number>>(new Map());
   const bridgeRef = useRef<Set<string>>(new Set());
+  const linksRef = useRef<DirectLink[]>([]);
+  const focusRef = useRef<string | null>(null);
+  const linksKeyRef = useRef<string>("");
+  const linksSyncRef = useRef<() => void>(() => {});
   const filtersRef = useRef(filters);
   const refreshRef = useRef<() => void>(() => {});
   const router = useRouter();
@@ -79,6 +103,7 @@ export function useMapController({
   useEffect(() => {
     filtersRef.current = filters;
     refreshRef.current();
+    linksSyncRef.current();
   }, [filters]);
 
   useEffect(() => {
@@ -233,6 +258,99 @@ export function useMapController({
       }
     };
 
+    const linksSource = (): maplibregl.GeoJSONSource | undefined =>
+      map.getSource("links") as maplibregl.GeoJSONSource | undefined;
+
+    // Position VISUELLE d'une pastille (géo + offset de spreadPills, en pixels).
+    // null si le node n'a pas de marqueur individuel à l'écran (en cluster ou
+    // filtré) -> son lien est masqué (réduit le fouillis, garantit une ancre).
+    const visualAnchor = (nodeId: string): Pt | null => {
+      const marker = onScreen[`n${nodeId}`];
+      if (!marker) return null;
+      const base = map.project(marker.getLngLat());
+      const off = marker.getOffset();
+      return { x: base.x + off.x, y: base.y + off.y };
+    };
+
+    // (Re)construit la couche des liens directs à partir des positions visuelles
+    // courantes : arcs courbés (bézier) ancrés sur les pastilles + badge au
+    // sommet. Appelé à chaque updateMarkers pour rester synchro pan/zoom/spread.
+    const renderLinks = (): void => {
+      const src = linksSource();
+      if (!src) return;
+      if (!filtersRef.current.linksEnabled) {
+        src.setData({ type: "FeatureCollection", features: [] });
+        return;
+      }
+      const focus = focusRef.current;
+      const features: GeoJSON.Feature[] = [];
+      let pileIndex = 0;
+      for (const l of linksRef.current) {
+        const a = visualAnchor(l.aId);
+        const b = visualAnchor(l.bId);
+        if (!a || !b) continue;
+        const chord = Math.hypot(b.x - a.x, b.y - a.y);
+        const c = controlPoint(a, b, LINK_ARC_PX, chord < 1 ? pileIndex++ : 0);
+        const coords = quadBezier(a, c, b).map((p) => {
+          const ll = map.unproject([p.x, p.y]);
+          return [ll.lng, ll.lat];
+        });
+        const dim = focus !== null && l.aId !== focus && l.bId !== focus;
+        const props: Record<string, unknown> = { packets: l.packets, dim };
+        if (l.snr !== null) props.snr = l.snr;
+        features.push({
+          type: "Feature",
+          properties: props,
+          geometry: { type: "LineString", coordinates: coords },
+        });
+        if (l.packets > 0) {
+          const ap = bezierApex(a, c, b);
+          const apex = map.unproject([ap.x, ap.y]);
+          features.push({
+            type: "Feature",
+            properties: { packets: l.packets, dim },
+            geometry: { type: "Point", coordinates: [apex.lng, apex.lat] },
+          });
+        }
+      }
+      src.setData({ type: "FeatureCollection", features });
+    };
+
+    const loadLinks = (): void => {
+      const { linksEnabled, linksSinceH } = filtersRef.current;
+      linksKeyRef.current = `${linksEnabled}|${linksSinceH}`;
+      if (!linksEnabled) {
+        linksRef.current = [];
+        renderLinks();
+        return;
+      }
+      fetch(`/api/links?sinceH=${linksSinceH}`)
+        .then((r) => r.json() as Promise<DirectLink[]>)
+        .then((ls) => {
+          linksRef.current = ls;
+          renderLinks();
+        })
+        .catch(() => {});
+    };
+
+    // Recharge les liens uniquement quand le mode ou la fenêtre change (pas à
+    // chaque frappe dans la recherche). Branché sur l'effet [filters].
+    linksSyncRef.current = () => {
+      const { linksEnabled, linksSinceH } = filtersRef.current;
+      const key = `${linksEnabled}|${linksSinceH}`;
+      if (key === linksKeyRef.current) return;
+      linksKeyRef.current = key;
+      loadLinks();
+    };
+
+    // Focus : met en avant les liens du node survolé, estompe les autres.
+    const setFocus = (nodeId: string | null): void => {
+      if (!filtersRef.current.linksEnabled) return;
+      if (focusRef.current === nodeId) return;
+      focusRef.current = nodeId;
+      renderLinks();
+    };
+
     const updateMarkers = (): void => {
       if (!map.getSource("nodes") || !map.isSourceLoaded("nodes")) return;
       const next: Record<string, maplibregl.Marker> = {};
@@ -273,12 +391,16 @@ export function useMapController({
               if (pinnedNodeId) return;
               const c = m.getLngLat();
               openNodePopup(nodeId, p, m);
-              if (p.isGateway === true) drawMesh(nodeId, [c.lng, c.lat]);
+              // Mode "liens directs" actif : focus (estompe les autres liens) ;
+              // sinon animation historique de la portée du gateway.
+              if (filtersRef.current.linksEnabled) setFocus(nodeId);
+              else if (p.isGateway === true) drawMesh(nodeId, [c.lng, c.lat]);
             });
             el.addEventListener("mouseleave", () => {
               if (tapToPreview) return;
               if (pinnedNodeId) return;
               hoverPopup.remove();
+              setFocus(null);
               clearMesh();
             });
             el.addEventListener("click", (event) => {
@@ -291,7 +413,8 @@ export function useMapController({
               const c = m.getLngLat();
               openNodePopup(nodeId, p, m);
               clearMesh();
-              if (p.isGateway === true) drawMesh(nodeId, [c.lng, c.lat]);
+              if (filtersRef.current.linksEnabled) setFocus(nodeId);
+              else if (p.isGateway === true) drawMesh(nodeId, [c.lng, c.lat]);
             });
           }
         } else {
@@ -306,6 +429,7 @@ export function useMapController({
       onScreen = next;
       spreadPills();
       applyBridge();
+      renderLinks();
     };
 
     const loadObservations = (): void => {
@@ -357,6 +481,10 @@ export function useMapController({
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       });
+      map.addSource("links", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
 
       map.addLayer({
         id: "nodes-hit",
@@ -364,10 +492,13 @@ export function useMapController({
         source: "nodes",
         paint: { "circle-radius": 1, "circle-opacity": 0 },
       });
+      map.addLayer(LINKS_LINE_LAYER);
       map.addLayer(MESH_DIRECT_LAYER);
       map.addLayer(MESH_RELAY_LAYER);
+      map.addLayer(LINKS_BADGE_LAYER);
       refreshNodes();
       loadObservations();
+      loadLinks();
     });
 
     map.on("data", (e) => {
@@ -377,6 +508,7 @@ export function useMapController({
     map.on("click", () => {
       pinnedNodeId = null;
       hoverPopup.remove();
+      setFocus(null);
       clearMesh();
     });
     map.on("move", updateMarkers);
