@@ -130,6 +130,11 @@ describe("parseMessage — champs nodeinfo", () => {
     expect(parsed?.role).toBe("CLIENT");
   });
 
+  it("packetType null si le type est absent", () => {
+    const parsed = parseMessage(topic("Fr_Balise"), raw({ type: undefined }), CHANNELS);
+    expect(parsed?.packetType).toBeNull();
+  });
+
   it("ignore les champs nodeinfo si le type n'est pas nodeinfo", () => {
     const parsed = parseMessage(
       topic("Fr_Balise"),
