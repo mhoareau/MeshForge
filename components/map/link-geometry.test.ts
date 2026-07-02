@@ -14,11 +14,17 @@ describe("quadBezier", () => {
 });
 
 describe("controlPoint", () => {
-  it("décale le milieu perpendiculairement à la corde", () => {
-    // corde horizontale [0,0]->[10,0], normale = (0,1) -> contrôle en (5, 5).
-    const c = controlPoint({ x: 0, y: 0 }, { x: 10, y: 0 }, 5);
-    expect(c.x).toBeCloseTo(5);
-    expect(c.y).toBeCloseTo(5);
+  it("corde longue : décale le milieu perpendiculairement de l'amplitude de base", () => {
+    // corde horizontale longue (>= seuil) -> pas de boost : contrôle en (50, 16).
+    const c = controlPoint({ x: 0, y: 0 }, { x: 100, y: 0 }, 16);
+    expect(c.x).toBeCloseTo(50);
+    expect(c.y).toBeCloseTo(16);
+  });
+
+  it("corde courte (pile) : boucle latérale marquée (dépasse les pastilles)", () => {
+    // corde de 20 px -> amplitude fortement gonflée pour sortir des pastilles.
+    const c = controlPoint({ x: 0, y: 0 }, { x: 20, y: 0 }, 16);
+    expect(Math.abs(c.y)).toBeGreaterThan(40);
   });
 
   it("corde quasi nulle (pile) : produit un contrôle décalé (arc visible)", () => {

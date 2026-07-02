@@ -15,24 +15,41 @@ export interface Pt {
   y: number;
 }
 
+// En-deçà de cette corde (px), les 2 pastilles sont "empilées" : sans les
+// bouger, on trace une BOUCLE marquée sur le côté (l'arc bombe bien au-delà des
+// pastilles, larges ~40 px, pour que le trait ET le badge soient lisibles).
+const SHORT_CHORD_PX = 80;
+const MAX_ARC_PX = 95;
+
+// Amplitude perpendiculaire de la courbure : discrète pour les liens longs
+// (`offsetPx`), fortement gonflée pour les cordes courtes (boucle latérale des
+// piles). `index` étage les boucles parallèles d'une même pile.
+function arcAmplitude(len: number, offsetPx: number, index: number): number {
+  const amp =
+    len < SHORT_CHORD_PX
+      ? Math.min(MAX_ARC_PX, offsetPx + (SHORT_CHORD_PX - len) * 1.2)
+      : offsetPx;
+  return amp + index * 10;
+}
+
 // Point de contrôle de la bézier quadratique : milieu de [a,b] décalé
-// perpendiculairement à la corde d'une amplitude `offsetPx`. Corde quasi nulle
-// (pile) -> éventail : angle et rayon indexés pour séparer plusieurs liens.
+// perpendiculairement à la corde. Corde quasi nulle (pile parfaite) -> éventail
+// (angle indexé) ; sinon perpendiculaire à la corde.
 export function controlPoint(a: Pt, b: Pt, offsetPx: number, index = 0): Pt {
   const mx = (a.x + b.x) / 2;
   const my = (a.y + b.y) / 2;
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   const len = Math.hypot(dx, dy);
+  const amp = arcAmplitude(len, offsetPx, index);
   if (len < 1) {
     const angle = -Math.PI / 2 + index * 0.7;
-    const radius = offsetPx + index * 7;
-    return { x: mx + Math.cos(angle) * radius, y: my + Math.sin(angle) * radius };
+    return { x: mx + Math.cos(angle) * amp, y: my + Math.sin(angle) * amp };
   }
   // Normale unitaire (corde tournée de 90°).
   const nx = -dy / len;
   const ny = dx / len;
-  return { x: mx + nx * offsetPx, y: my + ny * offsetPx };
+  return { x: mx + nx * amp, y: my + ny * amp };
 }
 
 // Échantillonne la bézier quadratique a→(c)→b en n+1 points (n segments).
