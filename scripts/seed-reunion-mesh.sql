@@ -34,7 +34,17 @@ INSERT INTO nodes (node_id,long_name,short_name,hw_model,role,is_mobile,
  ('!r20','Salazie','Sal','RAK4631','CLIENT',          FALSE,-21.0300,55.5400, 27, NOW()-INTERVAL '2 days', NOW()-INTERVAL '12 days', NULL),
  -- Pile : 2 relais quasi superposés (~3 m) près de Saint-Pierre (arc courbé).
  ('!r21','Relais SP-A','SP-A','HELTEC_V4','CLIENT',   FALSE,-21.3400,55.4770, 84, NOW()-INTERVAL '3 min',  NOW()-INTERVAL '20 days', NULL),
- ('!r22','Relais SP-B','SP-B','HELTEC_V4','CLIENT',   FALSE,-21.34003,55.47703,79,NOW()-INTERVAL '7 min',  NOW()-INTERVAL '20 days', NULL);
+ ('!r22','Relais SP-B','SP-B','HELTEC_V4','CLIENT',   FALSE,-21.34003,55.47703,79,NOW()-INTERVAL '7 min',  NOW()-INTERVAL '20 days', NULL),
+ -- Scénario TRACEROUTE : chaîne A->B->C->D (retour D->C->A) -> sauts directs.
+ ('!rta','Trace A','TrA','HELTEC_V4','CLIENT',FALSE,-21.160,55.340,60,NOW()-INTERVAL '15 min',NOW()-INTERVAL '10 days',NULL),
+ ('!rtb','Trace B','TrB','HELTEC_V4','CLIENT',FALSE,-21.140,55.390,58,NOW()-INTERVAL '15 min',NOW()-INTERVAL '10 days',NULL),
+ ('!rtc','Trace C','TrC','HELTEC_V4','CLIENT',FALSE,-21.120,55.440,56,NOW()-INTERVAL '15 min',NOW()-INTERVAL '10 days',NULL),
+ ('!rtd','Trace D','TrD','HELTEC_V4','CLIENT',FALSE,-21.100,55.490,54,NOW()-INTERVAL '15 min',NOW()-INTERVAL '10 days',NULL),
+ -- Scénario NEIGHBORINFO : E entend F,G,H et transmet à la gateway r15 (StPaul).
+ ('!rne','NInfo E','NiE','HELTEC_V4','CLIENT',FALSE,-21.060,55.300,72,NOW()-INTERVAL '6 min', NOW()-INTERVAL '10 days',NULL),
+ ('!rnf','NInfo F','NiF','HELTEC_V4','CLIENT',FALSE,-21.045,55.282,50,NOW()-INTERVAL '20 min',NOW()-INTERVAL '10 days',NULL),
+ ('!rng','NInfo G','NiG','HELTEC_V4','CLIENT',FALSE,-21.080,55.312,48,NOW()-INTERVAL '20 min',NOW()-INTERVAL '10 days',NULL),
+ ('!rnh','NInfo H','NiH','HELTEC_V4','CLIENT',FALSE,-21.062,55.330,46,NOW()-INTERVAL '20 min',NOW()-INTERVAL '10 days',NULL);
 
 -- ── Arêtes du maillage. (gw,nd) = paire ; base_snr/base_rssi = qualité moyenne
 --    (NULL = inconnu -> gris) ; hop (0 direct) ; cnt = nb de paquets ; ptype
@@ -80,7 +90,18 @@ INSERT INTO demo_edges VALUES
  -- Pile Saint-Pierre : arc courbé + gateway qui entend la pile.
  ('!r21','!r22',  6, -88, 0, 13,'position', 24),
  ('!r10','!r21',  5, -90, 0, 21,'position', 24),
- ('!r10','!r22',  4, -93, 0, 17,'position', 24);
+ ('!r10','!r22',  4, -93, 0, 17,'position', 24),
+ -- TRACEROUTE A->B->C->D : sauts directs (traceroute_hop, sans badge). Le
+ -- chemin COMPLET s'affiche en "Liens directs" ; A-D direct n'existe PAS.
+ ('!rtb','!rta',  9, NULL, 0, 1,'traceroute_hop', 24),
+ ('!rtc','!rtb',  6, NULL, 0, 1,'traceroute_hop', 24),
+ ('!rtd','!rtc',  3, NULL, 0, 1,'traceroute_hop', 24),
+ -- NEIGHBORINFO : r15 (gateway) entend E en direct (paquet réel -> badge),
+ -- puis E révèle ses voisins F,G,H (arêtes 'neighbor', sans badge).
+ ('!r15','!rne',  3, -100, 0, 5,'neighborinfo', 24),
+ ('!rne','!rnf',  6, NULL, 0, 2,'neighbor', 24),
+ ('!rne','!rng',  2, NULL, 0, 2,'neighbor', 24),
+ ('!rne','!rnh',-10, NULL, 0, 2,'neighbor', 24);
 
 -- Développe chaque arête en `cnt` paquets, avec SNR/RSSI/date jittérés.
 INSERT INTO packets (received_at, gateway_id, node_id, packet_type, channel, snr, rssi, hop_count)

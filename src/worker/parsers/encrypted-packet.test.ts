@@ -410,4 +410,75 @@ describe("parseEncryptedPacket", () => {
     expect(edges).toHaveLength(1);
     expect(edges[0].snr).toBeNull();
   });
+
+  // Scénario : A -> B -> C -> D (3 sauts), retour D -> C -> A. Le chemin COMPLET
+  // doit se décomposer en liens radio DIRECTS A-B, B-C, C-D (jamais A-D direct).
+  it("traceroute A→B→C→D : décompose le chemin complet en sauts directs", () => {
+    const A = 0x0a0a0a0a; // origine (= to dans la réponse)
+    const B = 0x0b0b0b0b;
+    const C = 0x0c0c0c0c;
+    const D = 0xf669cf14; // destination = from (fixé par envelope())
+    const payload = RouteDiscovery.encode(
+      RouteDiscovery.create({
+        route: [B, C], // intermédiaires A->D
+        snr_towards: [36, 24, 12], // ÷4 -> 9, 6, 3 dB (A-B, B-C, C-D)
+        route_back: [C], // retour D->C->A
+        snr_back: [8, 4],
+      }),
+    ).finish();
+
+    const parsed = parseEncryptedPacket(
+      TOPIC,
+      envelope(70, payload, { to: A, wantResponse: false }),
+      CHANNELS,
+      parseChannelKeys("Fr_Balise:AQ=="),
+    ) as ParsedPacket[];
+
+    const edges = parsed.slice(1);
+    const pairKey = (e: ParsedPacket) => [e.gatewayId, e.nodeId].sort().join("~");
+    const pairs = new Set(edges.map(pairKey));
+    // Chemin complet en paires non-orientées, tous en direct (hop 0).
+    expect(pairs).toEqual(
+      new Set(["!0a0a0a0a~!0b0b0b0b", "!0b0b0b0b~!0c0c0c0c", "!0c0c0c0c~!f669cf14"]),
+    );
+    expect(edges.every((e) => e.hopCount === 0 && e.packetType === "traceroute_hop")).toBe(true);
+    // Surtout PAS de lien direct A-D (ce sont 3 sauts, pas un lien radio direct).
+    expect(pairs.has("!0a0a0a0a~!f669cf14")).toBe(false);
+  });
+
+  // Scénario : E entend F, G, H et transmet son NeighborInfo. Une gateway le
+  // relaie -> les liens directs E-F, E-G, E-H apparaissent (E = émetteur/gateway
+  // de ces arêtes ; la gateway MQTT reste le gateway_id du paquet de base).
+  it("NeighborInfo E→{F,G,H} : révèle les 3 liens directs de E", () => {
+    const E = 0xf669cf14; // reporter = from (fixé par envelope())
+    const payload = NeighborInfo.encode(
+      NeighborInfo.create({
+        node_id: E,
+        neighbors: [
+          { node_id: 0x0f0f0f0f, snr: 6 }, // F
+          { node_id: 0x11111111, snr: 2 }, // G
+          { node_id: 0x22222222, snr: -3 }, // H
+        ],
+      }),
+    ).finish();
+
+    const parsed = parseEncryptedPacket(
+      TOPIC,
+      envelope(71, payload),
+      CHANNELS,
+      parseChannelKeys("Fr_Balise:AQ=="),
+    ) as ParsedPacket[];
+
+    // Paquet de base : la gateway a bien entendu le reporter E (upsert normal).
+    expect(parsed[0].packetType).toBe("neighborinfo");
+    expect(parsed[0].nodeId).toBe("!f669cf14");
+
+    const edges = parsed.slice(1);
+    expect(edges).toHaveLength(3);
+    // Toutes les arêtes partent de E (gateway = reporter), en direct.
+    expect(edges.every((e) => e.gatewayId === "!f669cf14" && e.hopCount === 0)).toBe(true);
+    expect(new Set(edges.map((e) => e.nodeId))).toEqual(
+      new Set(["!0f0f0f0f", "!11111111", "!22222222"]),
+    );
+  });
 });
