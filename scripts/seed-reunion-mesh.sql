@@ -46,10 +46,9 @@ INSERT INTO nodes (node_id,long_name,short_name,hw_model,role,is_mobile,
  ('!rng','NInfo G','NiG','HELTEC_V4','CLIENT',FALSE,-21.080,55.312,48,NOW()-INTERVAL '20 min',NOW()-INTERVAL '10 days',NULL),
  ('!rnh','NInfo H','NiH','HELTEC_V4','CLIENT',FALSE,-21.062,55.330,46,NOW()-INTERVAL '20 min',NOW()-INTERVAL '10 days',NULL);
 
--- ── Arêtes du maillage. (gw,nd) = paire ; base_snr/base_rssi = qualité moyenne
---    (NULL = inconnu -> gris) ; hop (0 direct) ; cnt = nb de paquets ; ptype
---    ('position' réel, 'neighbor'/'traceroute_hop' = arêtes synthétiques sans
---    badge) ; max_age_h = fraîcheur (les paquets sont étalés sur cette fenêtre).
+-- ── Paquets du maillage (carte principale). (gw,nd) = qui a entendu qui ;
+--    base_snr/base_rssi = qualité moyenne ; hop (0 direct, >0 relais) ; cnt =
+--    nb de paquets ; max_age_h = fraîcheur (paquets étalés sur cette fenêtre).
 CREATE TEMP TABLE demo_edges(gw text, nd text, base_snr real, base_rssi int,
                              hop smallint, cnt int, ptype text, max_age_h int);
 INSERT INTO demo_edges VALUES
@@ -81,27 +80,10 @@ INSERT INTO demo_edges VALUES
  ('!r15','!r17',  0, -99, 2,  8,'position', 24),
  ('!r10','!r07',  0, -99, 3,  5,'position', 24),
  ('!r06','!r20',  0, -99, 1,  6,'position', 48),
- -- NeighborInfo (révèle un lien direct, SANS badge : 0 paquet réel).
- ('!r14','!r17',  2, NULL,0,  2,'neighbor',  24),
- ('!r18','!r19',  4, NULL,0,  2,'neighbor',  24),
- -- Traceroute (SNR inconnu -> gris, sans badge).
- ('!r20','!r11', NULL,NULL,0, 1,'traceroute_hop', 24),
- ('!r17','!r19', NULL,NULL,0, 1,'traceroute_hop', 24),
- -- Pile Saint-Pierre : arc courbé + gateway qui entend la pile.
+ -- Pile Saint-Pierre (positions quasi identiques) : liens directs r21/r22.
  ('!r21','!r22',  6, -88, 0, 13,'position', 24),
  ('!r10','!r21',  5, -90, 0, 21,'position', 24),
- ('!r10','!r22',  4, -93, 0, 17,'position', 24),
- -- TRACEROUTE A->B->C->D : sauts directs (traceroute_hop, sans badge). Le
- -- chemin COMPLET s'affiche en "Liens directs" ; A-D direct n'existe PAS.
- ('!rtb','!rta',  9, NULL, 0, 1,'traceroute_hop', 24),
- ('!rtc','!rtb',  6, NULL, 0, 1,'traceroute_hop', 24),
- ('!rtd','!rtc',  3, NULL, 0, 1,'traceroute_hop', 24),
- -- NEIGHBORINFO : r15 (gateway) entend E en direct (paquet réel -> badge),
- -- puis E révèle ses voisins F,G,H (arêtes 'neighbor', sans badge).
- ('!r15','!rne',  3, -100, 0, 5,'neighborinfo', 24),
- ('!rne','!rnf',  6, NULL, 0, 2,'neighbor', 24),
- ('!rne','!rng',  2, NULL, 0, 2,'neighbor', 24),
- ('!rne','!rnh',-10, NULL, 0, 2,'neighbor', 24);
+ ('!r10','!r22',  4, -93, 0, 17,'position', 24);
 
 -- Développe chaque arête en `cnt` paquets, avec SNR/RSSI/date jittérés.
 INSERT INTO packets (received_at, gateway_id, node_id, packet_type, channel, snr, rssi, hop_count)
@@ -115,12 +97,31 @@ FROM demo_edges e CROSS JOIN LATERAL generate_series(1, e.cnt) g;
 
 DROP TABLE demo_edges;
 
--- Trajet LOGIQUE du traceroute A↔D (survol hors mode "Liens directs").
--- (CREATE IF NOT EXISTS pour les bases de dev créées avant cette table.)
-CREATE TABLE IF NOT EXISTS traceroute_paths (
-    received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    a_id TEXT NOT NULL, b_id TEXT NOT NULL, hops SMALLINT
+-- ── Diagnostic « Voisinage réseau » (fiche node). Tables dédiées (créées ici
+--    aussi pour les bases de dev antérieures). Vitrine : /node/!r10 (Saint-Pierre).
+CREATE TABLE IF NOT EXISTS node_neighbors (
+  received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  node_id TEXT NOT NULL, neighbor_id TEXT NOT NULL, snr REAL, gateway_id TEXT, channel TEXT
 );
-DELETE FROM traceroute_paths WHERE a_id LIKE '!r%' OR b_id LIKE '!r%';
-INSERT INTO traceroute_paths (a_id, b_id, hops)
-VALUES (LEAST('!rta','!rtd'), GREATEST('!rta','!rtd'), 3);
+CREATE TABLE IF NOT EXISTS traceroute_segments (
+  received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), packet_id BIGINT, channel TEXT,
+  source_node TEXT NOT NULL, target_node TEXT NOT NULL, gateway_id TEXT,
+  direction TEXT NOT NULL, step SMALLINT NOT NULL, from_node TEXT NOT NULL, to_node TEXT NOT NULL, snr REAL, raw JSONB
+);
+DELETE FROM node_neighbors WHERE node_id LIKE '!r%';
+DELETE FROM traceroute_segments WHERE source_node LIKE '!r%';
+
+-- NeighborInfo : voisins directs déclarés par r10 (SNR variés -> couleurs).
+INSERT INTO node_neighbors (node_id, neighbor_id, snr) VALUES
+ ('!r10','!r11', 8.5), ('!r10','!r09', 3.0), ('!r10','!r12', 4.2),
+ ('!r10','!r19', -10.0), ('!r10','!r21', 5.0), ('!r10','!r13', -16.0);
+
+-- Traceroute : r10 -> r19 via r12 (montre un intermédiaire + SNR par saut,
+-- aller/retour) ; et r10 <-> r11 direct.
+INSERT INTO traceroute_segments (packet_id, channel, source_node, target_node, gateway_id, direction, step, from_node, to_node, snr) VALUES
+ (2001,'Fr_Balise','!r10','!r19','!r10','forward',0,'!r10','!r12', 6.0),
+ (2001,'Fr_Balise','!r10','!r19','!r10','forward',1,'!r12','!r19', 2.0),
+ (2001,'Fr_Balise','!r10','!r19','!r10','back',   0,'!r19','!r12', 1.0),
+ (2001,'Fr_Balise','!r10','!r19','!r10','back',   1,'!r12','!r10', 5.5),
+ (2002,'Fr_Balise','!r10','!r11','!r10','forward',0,'!r10','!r11', 8.0),
+ (2002,'Fr_Balise','!r10','!r11','!r10','back',   0,'!r11','!r10', 7.5);

@@ -3,8 +3,10 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import SiteHeader from "@/components/SiteHeader";
 import NodeCharts from "@/components/NodeCharts";
+import NodeNeighborhood from "@/components/NodeNeighborhood";
 import { isAdmin } from "@/lib/admin";
 import { isSameOrigin } from "@/lib/security";
+import { snapToGrid } from "@/lib/privacy";
 import {
   getNodeById,
   setNodeExcluded,
@@ -19,6 +21,8 @@ import {
   getNodeHeardNodes,
   getNodeDeviceMetrics,
 } from "@/lib/queries/node-detail";
+import { getNodeNeighbors } from "@/lib/queries/neighbors";
+import { getNodeTraceroutes } from "@/lib/queries/traceroutes";
 
 // Request-time : interroge la DB.
 export const dynamic = "force-dynamic";
@@ -56,12 +60,14 @@ export default async function NodePage({
   // node chargé d'abord : sa position alimente le calcul de distance vers les gateways.
   const node = await getNodeById(nodeId);
   if (!node) notFound();
-  const [history, gateways, heardNodes, deviceMetrics, admin] =
+  const [history, gateways, heardNodes, deviceMetrics, neighbors, traceroutes, admin] =
     await Promise.all([
       getNodeHistory(nodeId),
       getNodeGateways(nodeId, node.lat, node.lon),
       getNodeHeardNodes(nodeId),
       getNodeDeviceMetrics(nodeId),
+      getNodeNeighbors(nodeId),
+      getNodeTraceroutes(nodeId),
       isAdmin(),
     ]);
   // Opt-out RGPD : un node retiré est invisible au public (mais l'admin le voit
@@ -121,6 +127,11 @@ export default async function NodePage({
 
   const title = node.longName ?? node.shortName ?? node.nodeId;
   const isBridge = gateways.length >= 2;
+  // PRIVACY : position du sujet snappée si mobile (cohérent avec la carte publique).
+  const subjectPos =
+    node.lat != null && node.lon != null && node.isMobile
+      ? snapToGrid(node.lat, node.lon)
+      : { lat: node.lat, lon: node.lon };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -231,6 +242,23 @@ export default async function NodePage({
               ))}
             </ul>
           )}
+        </section>
+
+        <section className="mt-8">
+          <h3 className="mb-3 text-sm font-semibold">
+            Voisinage réseau{" "}
+            <span className="font-normal text-zinc-500">(NeighborInfo · 30 j)</span>
+          </h3>
+          <NodeNeighborhood
+            node={{
+              nodeId: node.nodeId,
+              name: title,
+              lat: subjectPos.lat,
+              lon: subjectPos.lon,
+            }}
+            neighbors={neighbors}
+            traceroutes={traceroutes}
+          />
         </section>
 
         <section className="mt-8">
