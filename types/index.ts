@@ -140,6 +140,15 @@ export interface Observation {
   snr: number | null;
 }
 
+// Arête d'ATTEIGNABILITÉ (API /api/reach), pour enrichir le survol d'un nœud :
+// A atteint B en `hop` sauts. Union NeighborInfo (0 hop, voisin direct) +
+// Traceroute (nb de sauts du chemin). Paire non-orientée, MIN hop.
+export interface ReachEdge {
+  aId: string;
+  bId: string;
+  hop: number;
+}
+
 // ---------------------------------------------------------------------------
 // Diagnostic « Voisinage réseau » de la fiche node (/node/[id]).
 // ---------------------------------------------------------------------------

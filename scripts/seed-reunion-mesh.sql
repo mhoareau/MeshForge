@@ -114,4 +114,12 @@ INSERT INTO traceroute_segments (packet_id, channel, source_node, target_node, g
  (2001,'Fr_Balise','!r10','!r19','!r10','back',   0,'!r19','!r12', 1.0),
  (2001,'Fr_Balise','!r10','!r19','!r10','back',   1,'!r12','!r10', 5.5),
  (2002,'Fr_Balise','!r10','!r11','!r10','forward',0,'!r10','!r11', 8.0),
- (2002,'Fr_Balise','!r10','!r11','!r10','back',   0,'!r11','!r10', 7.5);
+ (2002,'Fr_Balise','!r10','!r11','!r10','back',   0,'!r11','!r10', 7.5),
+ -- r10 -> r06 (Saint-Benoît, PAS un voisin) via r19,r18 : 3 sauts -> arête reach
+ -- en pointillé (hop 3) au survol, distincte des liens directs.
+ (2003,'Fr_Balise','!r10','!r06','!r10','forward',0,'!r10','!r19', 4.0),
+ (2003,'Fr_Balise','!r10','!r06','!r10','forward',1,'!r19','!r18', -6.0),
+ (2003,'Fr_Balise','!r10','!r06','!r10','forward',2,'!r18','!r06', -9.0),
+ (2003,'Fr_Balise','!r10','!r06','!r10','back',   0,'!r06','!r18', -8.0),
+ (2003,'Fr_Balise','!r10','!r06','!r10','back',   1,'!r18','!r19', -5.0),
+ (2003,'Fr_Balise','!r10','!r06','!r10','back',   2,'!r19','!r10',  3.0);

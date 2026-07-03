@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 import maplibregl from "maplibre-gl";
-import type { PublicNode, NodeUpdate, Observation, MapBounds } from "@/types";
+import type { PublicNode, NodeUpdate, Observation, ReachEdge, MapBounds } from "@/types";
 import {
   nodeFeature,
   shortLabel,
@@ -53,6 +53,12 @@ export function useMapController({
   );
   const minHopRef = useRef<Map<string, number>>(new Map());
   const bridgeRef = useRef<Set<string>>(new Set());
+  // Arêtes NeighborInfo/Traceroute (brutes) + index d'atteignabilité NON-orienté
+  // pour le survol : nodeId -> nœuds atteints (paquet direct 2 sens + reach).
+  const reachEdgesRef = useRef<ReachEdge[]>([]);
+  const hoverLinkRef = useRef<Map<string, { nodeId: string; hop: number }[]>>(
+    new Map(),
+  );
   const filtersRef = useRef(filters);
   const refreshRef = useRef<() => void>(() => {});
   const router = useRouter();
@@ -180,13 +186,20 @@ export function useMapController({
       meshRaf = null;
       meshSource()?.setData({ type: "FeatureCollection", features: [] });
     };
-    const drawMesh = (gatewayId: string, gw: LngLat): void => {
+    // Toutes les arêtes du nœud survolé (paquet direct 2 sens + NeighborInfo +
+    // Traceroute), au hop MINIMAL par nœud atteint. Couleurs = code hop existant.
+    const drawMesh = (nodeId: string, gw: LngLat): void => {
       const src = meshSource();
       if (!src) return;
       const { hopFilter } = filtersRef.current;
-      const targets = (obsRef.current.get(gatewayId) ?? [])
-        .filter((e) => matchesHopFilter(e.hop, hopFilter))
-        .map((e) => ({ hop: e.hop, pos: posById(e.nodeId) }))
+      const best = new Map<string, number>();
+      for (const e of hoverLinkRef.current.get(nodeId) ?? []) {
+        const prev = best.get(e.nodeId);
+        if (prev === undefined || e.hop < prev) best.set(e.nodeId, e.hop);
+      }
+      const targets = [...best.entries()]
+        .filter(([, hop]) => matchesHopFilter(hop, hopFilter))
+        .map(([id, hop]) => ({ hop, pos: posById(id) }))
         .filter((t): t is { hop: number; pos: LngLat } => t.pos !== null);
       if (!targets.length) return;
       const start = performance.now();
@@ -273,7 +286,9 @@ export function useMapController({
               if (pinnedNodeId) return;
               const c = m.getLngLat();
               openNodePopup(nodeId, p, m);
-              if (p.isGateway === true) drawMesh(nodeId, [c.lng, c.lat]);
+              // Survol de N'IMPORTE QUEL nœud : ses arêtes (direct + NeighborInfo
+              // + Traceroute) ; drawMesh ne dessine rien s'il n'en a aucune.
+              drawMesh(nodeId, [c.lng, c.lat]);
             });
             el.addEventListener("mouseleave", () => {
               if (tapToPreview) return;
@@ -291,7 +306,7 @@ export function useMapController({
               const c = m.getLngLat();
               openNodePopup(nodeId, p, m);
               clearMesh();
-              if (p.isGateway === true) drawMesh(nodeId, [c.lng, c.lat]);
+              drawMesh(nodeId, [c.lng, c.lat]);
             });
           }
         } else {
@@ -332,7 +347,39 @@ export function useMapController({
             [...gwByNode].filter(([, s]) => s.size >= 2).map(([n]) => n),
           );
           applyBridge();
+          rebuildHover();
           refreshNodes();
+        })
+        .catch(() => {});
+    };
+
+    // Index NON-orienté pour le survol : observations (2 sens) + reach.
+    const rebuildHover = (): void => {
+      const h = new Map<string, { nodeId: string; hop: number }[]>();
+      const add = (a: string, b: string, hop: number): void => {
+        const arr = h.get(a) ?? [];
+        arr.push({ nodeId: b, hop });
+        h.set(a, arr);
+      };
+      for (const [gw, list] of obsRef.current) {
+        for (const e of list) {
+          add(gw, e.nodeId, e.hop); // ce que gw a entendu
+          add(e.nodeId, gw, e.hop); // gw a entendu ce node (sens inverse)
+        }
+      }
+      for (const e of reachEdgesRef.current) {
+        add(e.aId, e.bId, e.hop); // NeighborInfo / Traceroute (non-orienté)
+        add(e.bId, e.aId, e.hop);
+      }
+      hoverLinkRef.current = h;
+    };
+
+    const loadReach = (): void => {
+      fetch("/api/reach")
+        .then((r) => r.json() as Promise<ReachEdge[]>)
+        .then((edges) => {
+          reachEdgesRef.current = edges;
+          rebuildHover();
         })
         .catch(() => {});
     };
@@ -368,6 +415,7 @@ export function useMapController({
       map.addLayer(MESH_RELAY_LAYER);
       refreshNodes();
       loadObservations();
+      loadReach();
     });
 
     map.on("data", (e) => {
