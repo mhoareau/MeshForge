@@ -5,9 +5,17 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { NodeNeighbor, NodeTraceroute, TracerouteHop } from "@/types";
 import { signalColor } from "@/components/map/signal-color";
+import {
+  SUBJECT_COLOR,
+  buildLinkFeatures,
+  buildNodeFeatures,
+  fmtSnr,
+  locatedNeighbors,
+  nodeLabel as label,
+  splitHops,
+} from "@/components/node-neighborhood-data";
 
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
-const SUBJECT_COLOR = "#2563eb";
 
 type Props = {
   node: { nodeId: string; name: string; lat: number | null; lon: number | null };
@@ -15,52 +23,16 @@ type Props = {
   traceroutes: NodeTraceroute[];
 };
 
-const shortId = (id: string) => id.replace(/^!/, "").slice(-4);
-const label = (id: string, name: string | null) => name?.trim() || shortId(id);
-const fmtSnr = (s: number | null) => (s == null ? "— dB" : `${s} dB`);
-
 export default function NodeNeighborhood({ node, neighbors, traceroutes }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
 
-  const located = neighbors.filter((n) => n.lat != null && n.lon != null);
+  const located = locatedNeighbors(neighbors);
   const canMap = node.lat != null && node.lon != null && located.length > 0;
 
-  // Liens sujet -> voisin, colorés par SNR ; `dim` = estompé si un autre est survolé.
-  const buildLinks = (hoveredId: string | null): GeoJSON.FeatureCollection => ({
-    type: "FeatureCollection",
-    features: located.map((n) => ({
-      type: "Feature",
-      properties: {
-        color: signalColor(n.snr),
-        dim: hoveredId != null && hoveredId !== n.nodeId,
-      },
-      geometry: {
-        type: "LineString",
-        coordinates: [
-          [node.lon as number, node.lat as number],
-          [n.lon as number, n.lat as number],
-        ],
-      },
-    })),
-  });
-
-  const buildNodes = (): GeoJSON.FeatureCollection => ({
-    type: "FeatureCollection",
-    features: [
-      {
-        type: "Feature",
-        properties: { kind: "subject", label: label(node.nodeId, node.name), color: SUBJECT_COLOR },
-        geometry: { type: "Point", coordinates: [node.lon as number, node.lat as number] },
-      },
-      ...located.map((n) => ({
-        type: "Feature" as const,
-        properties: { kind: "neighbor", nodeId: n.nodeId, label: label(n.nodeId, n.name), color: signalColor(n.snr) },
-        geometry: { type: "Point" as const, coordinates: [n.lon as number, n.lat as number] },
-      })),
-    ],
-  });
+  const buildLinks = (hoveredId: string | null) => buildLinkFeatures(node, located, hoveredId);
+  const buildNodes = () => buildNodeFeatures(node, located);
 
   // Init carte (une fois). fitBounds sur sujet + voisins localisés.
   useEffect(() => {
@@ -234,8 +206,7 @@ function LegendDot({ color, text }: { color: string; text: string }) {
 }
 
 function TraceroutePath({ trace }: { trace: NodeTraceroute }) {
-  const forward = trace.hops.filter((h) => h.direction === "forward");
-  const back = trace.hops.filter((h) => h.direction === "back");
+  const { forward, back } = splitHops(trace.hops);
   return (
     <div className="space-y-2">
       <HopList title="Aller" hops={forward} />
