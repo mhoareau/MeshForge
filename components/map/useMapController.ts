@@ -60,6 +60,10 @@ export function useMapController({
   );
   const minHopRef = useRef<Map<string, number>>(new Map());
   const bridgeRef = useRef<Set<string>>(new Set());
+  // node -> gateways qui l'ont entendu (pour recalculer l'anneau "pont" en
+  // tenant compte du filtre 20 km, cohérent avec les liens au survol).
+  const heardByRef = useRef<Map<string, Set<string>>>(new Map());
+  const bridgeSyncRef = useRef<() => void>(() => {});
   // Arêtes NeighborInfo/Traceroute (brutes) + index d'atteignabilité NON-orienté
   // pour le survol : nodeId -> nœuds atteints (paquet direct 2 sens + reach).
   const reachEdgesRef = useRef<ReachEdge[]>([]);
@@ -92,6 +96,7 @@ export function useMapController({
   useEffect(() => {
     filtersRef.current = filters;
     refreshRef.current();
+    bridgeSyncRef.current(); // le toggle 20 km change aussi l'anneau "pont"
   }, [filters]);
 
   useEffect(() => {
@@ -362,15 +367,36 @@ export function useMapController({
             set.add(o.gatewayId);
             gwByNode.set(o.nodeId, set);
           }
-          bridgeRef.current = new Set(
-            [...gwByNode].filter(([, s]) => s.size >= 2).map(([n]) => n),
-          );
-          applyBridge();
+          heardByRef.current = gwByNode;
+          computeBridges();
           rebuildHover();
           refreshNodes();
         })
         .catch(() => {});
     };
+
+    // Anneau "vu par plusieurs gateways" : un node est un pont s'il est entendu
+    // par >= 2 gateways À MOINS DE 20 km (ou toutes si le toggle est actif),
+    // cohérent avec l'affichage des liens au survol. Nécessite les positions.
+    const computeBridges = (): void => {
+      const { showFarLinks } = filtersRef.current;
+      const bridges = new Set<string>();
+      for (const [node, gws] of heardByRef.current) {
+        const np = posById(node);
+        if (!np) continue;
+        let count = 0;
+        for (const gw of gws) {
+          if (gw === node) continue;
+          const gp = posById(gw);
+          if (!gp) continue;
+          if (showFarLinks || haversineKm(np[1], np[0], gp[1], gp[0]) <= FAR_LINK_KM) count++;
+        }
+        if (count >= 2) bridges.add(node);
+      }
+      bridgeRef.current = bridges;
+      applyBridge();
+    };
+    bridgeSyncRef.current = computeBridges;
 
     // Index NON-orienté pour le survol : observations (2 sens) + reach.
     const rebuildHover = (): void => {
@@ -456,6 +482,7 @@ export function useMapController({
       .then((nodes) => {
         nodes.forEach((n) => nodesById.current.set(n.nodeId, nodeFeature(n)));
         updateRoleOptions();
+        computeBridges(); // positions dispo -> recalcul de l'anneau (distance)
         refreshNodes();
       })
       .catch(() => {});
