@@ -55,7 +55,38 @@ export interface ParsedPacket {
   hwModel: string | null;
   firmware: string | null;
   role: string | null;
+  // Voisins DIRECTS déclarés par ce node (paquet NeighborInfo). Le worker les
+  // enregistre dans `node_neighbors` (diagnostic « Voisinage réseau » de la
+  // fiche node). Absent sur les autres types de paquets.
+  neighbors?: NeighborReport[];
+  // Traceroute décodé (RouteDiscovery) : chemin bout-à-bout + segments par saut.
+  // Le worker les enregistre dans `traceroute_segments`. Absent sinon.
+  traceroute?: TracerouteInfo;
   raw: RawMeshtasticPacket;
+}
+
+// Un voisin direct rapporté par un NeighborInfo (SNR de réception au reporter).
+export interface NeighborReport {
+  neighborId: string;
+  snr: number | null;
+}
+
+// Un saut d'un traceroute : `direction` = aller (forward) / retour (back),
+// `step` = index du saut dans cette direction, SNR mesuré au récepteur `toNode`.
+export interface TracerouteSegment {
+  direction: "forward" | "back";
+  step: number;
+  fromNode: string;
+  toNode: string;
+  snr: number | null;
+}
+
+// Traceroute complet reconstruit : extrémités logiques (A atteint D) + segments.
+export interface TracerouteInfo {
+  sourceNode: string; // origine A (émetteur de la requête)
+  targetNode: string; // destination D
+  packetId: number | null; // id du MeshPacket (regroupe les segments)
+  segments: TracerouteSegment[];
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +138,67 @@ export interface Observation {
   nodeId: string;
   bestHop: number | null;
   snr: number | null;
+  packets: number; // nb de paquets (toutes catégories) captés pour cette paire
+}
+
+// Arête d'ATTEIGNABILITÉ ORIENTÉE (API /api/reach), pour enrichir le survol :
+// `fromId` atteint `toId` en `hop` sauts. Union NeighborInfo (0 hop, voisin
+// direct, émis dans les deux sens) + Traceroute (paires ordonnées du chemin,
+// hop = nb de relais entre les deux). Orientée car le hop dépend du sens :
+// A→C peut être 1 hop (via un relais) alors que C→A est 0 hop (direct). MIN hop.
+export interface ReachEdge {
+  fromId: string;
+  toId: string;
+  hop: number;
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostic « Voisinage réseau » de la fiche node (/node/[id]).
+// ---------------------------------------------------------------------------
+
+// Un voisin DIRECT d'un node (issu de ses paquets NeighborInfo), avec position
+// pour la mini-carte. snr = dernier SNR rapporté ; lat/lon null -> non tracé.
+export interface NodeNeighbor {
+  nodeId: string;
+  name: string | null;
+  snr: number | null;
+  lat: number | null;
+  lon: number | null;
+  lastSeen: string | null; // ISO 8601 — dernier NeighborInfo le mentionnant
+}
+
+// Un nœud CONNECTÉ au nœud consulté (mini-carte « Voisinage réseau ») : union
+// des paquets réels captés (2 sens) + voisins NeighborInfo. hop MIN, SNR médian,
+// et le détail des paquets par TYPE (pour le filtre). Position pour la carte.
+export interface NodeMapLink {
+  nodeId: string;
+  name: string | null;
+  snr: number | null;
+  hop: number | null;
+  lat: number | null;
+  lon: number | null;
+  types: Record<string, number>; // type de paquet -> nb (ex: {position:12, neighborinfo:2})
+}
+
+// Un traceroute complet impliquant le node consulté : chemin ordonné par saut,
+// dans chaque sens, avec le SNR par saut (pour colorer + flécher au survol).
+export interface NodeTraceroute {
+  sourceNode: string;
+  targetNode: string;
+  otherNode: string; // l'extrémité qui n'est PAS le node consulté
+  receivedAt: string; // ISO 8601
+  hops: TracerouteHop[];
+}
+
+// Un saut affichable : émetteur -> récepteur, SNR, sens.
+export interface TracerouteHop {
+  direction: "forward" | "back";
+  step: number;
+  fromNode: string;
+  fromName: string | null;
+  toNode: string;
+  toName: string | null;
+  snr: number | null;
 }
 
 // Page détail node — point de la série journalière (courbes 30j).
@@ -125,6 +217,7 @@ export interface NodeGatewayLink {
   bestHop: number | null; // 0 = lien radio direct
   packets: number;
   distanceKm: number | null; // distance node ↔ gateway (null si position inconnue)
+  lastHeard: string; // ISO 8601 — dernier paquet capté par ce gateway
 }
 
 // Node entendu par le node sujet (qui agit comme relais/gateway). Miroir de
@@ -137,6 +230,7 @@ export interface NodeHeardLink {
   bestHop: number | null; // 0 = lien radio direct
   packets: number;
   lastHeard: string; // ISO 8601 — dernier paquet capté de ce node
+  distanceKm: number | null; // distance node sujet ↔ node entendu (null si position inconnue)
   hasPosition: boolean;
 }
 

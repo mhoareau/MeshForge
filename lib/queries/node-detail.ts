@@ -32,6 +32,7 @@ interface GatewayLinkRow {
   snr: string | number | null;
   bestHop: string | number | null;
   packets: string | number;
+  lastHeard: Date;
   gwLat: number | null;
   gwLon: number | null;
 }
@@ -55,6 +56,7 @@ export function toGatewayLinks(
       distanceKm: hasBoth
         ? Math.round(haversineKm(nodeLat, nodeLon, r.gwLat!, r.gwLon!) * 10) / 10
         : null,
+      lastHeard: r.lastHeard.toISOString(),
     };
   });
 }
@@ -66,22 +68,37 @@ interface HeardNodeRow {
   bestHop: string | number | null;
   packets: string | number;
   lastHeard: Date;
+  nLat: number | null;
+  nLon: number | null;
   hasPosition: boolean;
 }
 
 // Nodes que ce node a entendus (il agit alors en gateway). L'appartenance à la
 // liste ne dépend QUE de la réception d'un paquet — un node sans position (qui
 // n'a jamais émis de trame position) y figure aussi, d'où hasPosition.
-export function toHeardNodes(rows: HeardNodeRow[]): NodeHeardLink[] {
-  return rows.map((r) => ({
-    nodeId: r.nodeId,
-    nodeName: r.nodeName,
-    snr: r.snr == null ? null : Math.round(Number(r.snr) * 10) / 10,
-    bestHop: r.bestHop == null ? null : Number(r.bestHop),
-    packets: Number(r.packets),
-    lastHeard: r.lastHeard.toISOString(),
-    hasPosition: r.hasPosition,
-  }));
+// nodeLat/nodeLon (position du node sujet) servent à calculer la distance vers
+// chaque node entendu (comme toGatewayLinks), si les deux positions existent.
+export function toHeardNodes(
+  rows: HeardNodeRow[],
+  nodeLat: number | null = null,
+  nodeLon: number | null = null,
+): NodeHeardLink[] {
+  return rows.map((r) => {
+    const hasBoth =
+      nodeLat != null && nodeLon != null && r.nLat != null && r.nLon != null;
+    return {
+      nodeId: r.nodeId,
+      nodeName: r.nodeName,
+      snr: r.snr == null ? null : Math.round(Number(r.snr) * 10) / 10,
+      bestHop: r.bestHop == null ? null : Number(r.bestHop),
+      packets: Number(r.packets),
+      lastHeard: r.lastHeard.toISOString(),
+      distanceKm: hasBoth
+        ? Math.round(haversineKm(nodeLat, nodeLon, r.nLat!, r.nLon!) * 10) / 10
+        : null,
+      hasPosition: r.hasPosition,
+    };
+  });
 }
 
 // pg renvoie REAL en number, mais on coerce par robustesse (string possible).
@@ -131,6 +148,7 @@ const SELECT_GATEWAYS = `
     AVG(p.snr)                            AS snr,
     MIN(p.hop_count)                      AS "bestHop",
     COUNT(*)                              AS packets,
+    MAX(p.received_at)                    AS "lastHeard",
     gw.last_lat                           AS "gwLat",
     gw.last_lon                           AS "gwLon"
   FROM packets p
@@ -166,6 +184,8 @@ const SELECT_HEARD_NODES = `
     MIN(p.hop_count)                      AS "bestHop",
     COUNT(*)                              AS packets,
     MAX(p.received_at)                    AS "lastHeard",
+    n.last_lat                            AS "nLat",
+    n.last_lon                            AS "nLon",
     (n.last_lat IS NOT NULL AND n.last_lon IS NOT NULL) AS "hasPosition"
   FROM packets p
   LEFT JOIN nodes n ON n.node_id = p.node_id
@@ -179,9 +199,11 @@ const SELECT_HEARD_NODES = `
 
 export async function getNodeHeardNodes(
   nodeId: string,
+  nodeLat: number | null = null,
+  nodeLon: number | null = null,
 ): Promise<NodeHeardLink[]> {
   const { rows } = await pool.query<HeardNodeRow>(SELECT_HEARD_NODES, [nodeId]);
-  return toHeardNodes(rows);
+  return toHeardNodes(rows, nodeLat, nodeLon);
 }
 
 // Dernière valeur non-nulle de chaque métrique device sur 30j (les métriques

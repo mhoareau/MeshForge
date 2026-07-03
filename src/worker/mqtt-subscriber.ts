@@ -4,6 +4,8 @@ import "./env"; // charge .env.local AVANT lib/db (qui lit DATABASE_URL)
 import mqtt from "mqtt";
 import { pool } from "../../lib/db";
 import { insertPacket } from "../../lib/queries/packets";
+import { insertNodeNeighbors } from "../../lib/queries/neighbors";
+import { insertTracerouteSegments } from "../../lib/queries/traceroutes";
 import { upsertGatewayNode, upsertNode } from "../../lib/queries/nodes";
 import { getSetting } from "../../lib/queries/settings";
 import { parseMqttPacket } from "./parsers";
@@ -57,6 +59,14 @@ client.on("message", async (topic, message) => {
     await insertPacket(parsed);
     await upsertNode(parsed);
     await upsertGatewayNode(parsed);
+    // NeighborInfo -> voisins directs ; Traceroute -> segments du chemin.
+    // Tables dédiées consommées par le diagnostic « Voisinage réseau ».
+    if (parsed.neighbors?.length) {
+      await insertNodeNeighbors(parsed.nodeId, parsed.neighbors, parsed.gatewayId, parsed.channel);
+    }
+    if (parsed.traceroute) {
+      await insertTracerouteSegments(parsed.traceroute, parsed.gatewayId, parsed.channel, parsed.raw);
+    }
     log(`[pkt] ${parsed.channel} ${parsed.packetType} ${parsed.nodeId}`);
   } catch (err) {
     // Silencieux : le mesh envoie du bruit / JSON malformé, erreur DB ponctuelle.

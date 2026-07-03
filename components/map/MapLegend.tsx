@@ -49,6 +49,14 @@ export function MapLegend({ open, onToggle }: MapLegendProps) {
                 Lien via relais 3+ hops
               </span>
             </div>
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="inline-flex h-5 min-w-9 flex-none items-center justify-center rounded-[7px] bg-white px-1.5 text-[10px] font-bold text-zinc-900 shadow ring-1 ring-black/10">
+                12
+              </span>
+              <span className="min-w-0 break-words">
+                Nombre de paquets sur le lien (au survol)
+              </span>
+            </div>
           </div>
         </div>
       )}

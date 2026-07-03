@@ -20,10 +20,11 @@ export default function MapView({
   const [role, setRole] = useState("");
   const [sinceH, setSinceH] = useState(0); // 0 = tous
   const [hopFilter, setHopFilter] = useState<HopFilter>("all");
+  const [showFarLinks, setShowFarLinks] = useState(false);
   const [legendOpen, setLegendOpen] = useState(true);
   const filters = useMemo(
-    () => ({ search, role, sinceH, hopFilter }),
-    [search, role, sinceH, hopFilter],
+    () => ({ search, role, sinceH, hopFilter, showFarLinks }),
+    [search, role, sinceH, hopFilter, showFarLinks],
   );
 
   const { roleOptions } = useMapController({
@@ -35,7 +36,10 @@ export default function MapView({
 
   return (
     <div className="mf-map relative h-full w-full">
-      <div ref={containerRef} className="h-full w-full" />
+      {/* isolate : cantonne les marqueurs MapLibre (z-index interne) dans leur
+          propre contexte d'empilement -> ils ne passent plus au-dessus des
+          panneaux (filtres, légende) posés après dans le DOM. */}
+      <div ref={containerRef} className="isolate h-full w-full" />
       <MapLegend
         open={legendOpen}
         onToggle={() => setLegendOpen((open) => !open)}
@@ -46,10 +50,12 @@ export default function MapView({
         roleOptions={roleOptions}
         sinceH={sinceH}
         hopFilter={hopFilter}
+        showFarLinks={showFarLinks}
         onSearchChange={setSearch}
         onRoleChange={setRole}
         onSinceHChange={setSinceH}
         onHopFilterChange={setHopFilter}
+        onShowFarLinksChange={setShowFarLinks}
       />
     </div>
   );

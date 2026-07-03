@@ -1,4 +1,7 @@
-import type { LineLayerSpecification } from "maplibre-gl";
+import type {
+  LineLayerSpecification,
+  SymbolLayerSpecification,
+} from "maplibre-gl";
 
 export const MESH_DIRECT_LAYER: LineLayerSpecification = {
   id: "mesh-direct",
@@ -30,5 +33,26 @@ export const MESH_RELAY_LAYER: LineLayerSpecification = {
     "line-width": 1.5,
     "line-dasharray": [1.5, 1.5],
     "line-opacity": 0.85,
+  },
+};
+
+// Badge (nombre de paquets échangés) au milieu d'un lien, au survol d'un nœud.
+// Points ajoutés à la source `mesh` par drawMesh ; halo blanc pour la lisibilité.
+export const MESH_BADGE_LAYER: SymbolLayerSpecification = {
+  id: "mesh-badge",
+  type: "symbol",
+  source: "mesh",
+  filter: ["==", ["geometry-type"], "Point"],
+  minzoom: 9,
+  layout: {
+    "text-field": ["to-string", ["get", "packets"]],
+    "text-font": ["Noto Sans Bold"],
+    "text-size": 11,
+    "text-allow-overlap": false,
+  },
+  paint: {
+    "text-color": "#111827",
+    "text-halo-color": "#ffffff",
+    "text-halo-width": 1.6,
   },
 };

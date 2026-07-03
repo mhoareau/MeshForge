@@ -130,6 +130,11 @@ describe("parseMessage — champs nodeinfo", () => {
     expect(parsed?.role).toBe("CLIENT");
   });
 
+  it("packetType null si le type est absent", () => {
+    const parsed = parseMessage(topic("Fr_Balise"), raw({ type: undefined }), CHANNELS);
+    expect(parsed?.packetType).toBeNull();
+  });
+
   it("ignore les champs nodeinfo si le type n'est pas nodeinfo", () => {
     const parsed = parseMessage(
       topic("Fr_Balise"),
@@ -138,5 +143,67 @@ describe("parseMessage — champs nodeinfo", () => {
     );
     expect(parsed?.longName).toBeNull();
     expect(parsed?.hwModel).toBeNull();
+  });
+});
+
+describe("parseMessage — NeighborInfo", () => {
+  it("attache les voisins directs (exclut broadcast / soi-même)", () => {
+    const parsed = parseMessage(
+      topic("Fr_Balise"),
+      raw({
+        type: "neighborinfo",
+        payload: {
+          neighbors: [
+            { node_id: 0xffffffff, snr: 1 }, // broadcast -> ignoré
+            { node_id: 0xf669cf14, snr: 1 }, // soi-même -> ignoré
+            { node_id: 0x33333333, snr: 4 },
+          ],
+        },
+      }),
+      CHANNELS,
+    );
+    expect(parsed?.neighbors).toEqual([{ neighborId: "!33333333", snr: 4 }]);
+  });
+
+  it("neighbors undefined sur les autres types", () => {
+    const parsed = parseMessage(topic("Fr_Balise"), raw({ type: "position" }), CHANNELS);
+    expect(parsed?.neighbors).toBeUndefined();
+  });
+
+  it("payload sans tableau neighbors -> liste vide", () => {
+    const parsed = parseMessage(topic("Fr_Balise"), raw({ type: "neighborinfo", payload: {} }), CHANNELS);
+    expect(parsed?.neighbors).toEqual([]);
+  });
+});
+
+describe("parseMessage — Traceroute", () => {
+  it("réponse (want_response=false) : segments aller, SNR null (barème JSON non fiable)", () => {
+    const parsed = parseMessage(
+      topic("Fr_Balise"),
+      raw({
+        type: "traceroute",
+        to: 0x0a0a0a0a,
+        want_response: false,
+        payload: { route: [0x0b0b0b0b] },
+      } as Partial<RawMeshtasticPacket>),
+      CHANNELS,
+    );
+    const t = parsed?.traceroute;
+    expect(t?.sourceNode).toBe("!0a0a0a0a");
+    expect(t?.targetNode).toBe("!f669cf14");
+    const fwd = (t?.segments ?? []).filter((s) => s.direction === "forward");
+    expect(fwd.map((s) => [s.fromNode, s.toNode, s.snr])).toEqual([
+      ["!0a0a0a0a", "!0b0b0b0b", null],
+      ["!0b0b0b0b", "!f669cf14", null],
+    ]);
+  });
+
+  it("sens indéterminé (pas de want_response) -> pas de traceroute", () => {
+    const parsed = parseMessage(
+      topic("Fr_Balise"),
+      raw({ type: "traceroute", to: 0x0a0a0a0a, payload: { route: [0x0b0b0b0b] } }),
+      CHANNELS,
+    );
+    expect(parsed?.traceroute).toBeUndefined();
   });
 });

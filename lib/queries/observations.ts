@@ -3,21 +3,24 @@
 import { pool } from "../db";
 import type { Observation } from "../../types";
 
-// pg : MIN(hop_count) (smallint) en number/string, AVG(snr)::real en number.
+// pg : MIN(hop_count) (smallint) en number/string, AVG(snr)::real en number,
+// COUNT(*) (bigint) en string.
 interface ObservationRow {
   gatewayId: string;
   nodeId: string;
   bestHop: string | number | null;
   snr: number | null;
+  packets: string | number;
 }
 
-// Normalise les arêtes (coercition bestHop ; snr/bestHop null préservés).
+// Normalise les arêtes (coercition bestHop/packets ; snr/bestHop null préservés).
 export function toObservations(rows: ObservationRow[]): Observation[] {
   return rows.map((r) => ({
     gatewayId: r.gatewayId,
     nodeId: r.nodeId,
     bestHop: r.bestHop == null ? null : Number(r.bestHop),
     snr: r.snr,
+    packets: Number(r.packets),
   }));
 }
 
@@ -32,7 +35,8 @@ const SELECT_OBSERVATIONS = `
     p.gateway_id      AS "gatewayId",
     p.node_id         AS "nodeId",
     MIN(p.hop_count)  AS "bestHop",
-    AVG(p.snr)::real  AS "snr"
+    AVG(p.snr)::real  AS "snr",
+    COUNT(*)          AS "packets"
   FROM packets p
   JOIN nodes gw ON gw.node_id = p.gateway_id
   JOIN nodes nd ON nd.node_id = p.node_id

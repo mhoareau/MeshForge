@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 import maplibregl from "maplibre-gl";
-import type { PublicNode, NodeUpdate, Observation, MapBounds } from "@/types";
+import type { PublicNode, NodeUpdate, Observation, ReachEdge, MapBounds } from "@/types";
 import {
   nodeFeature,
   shortLabel,
@@ -20,8 +20,14 @@ import {
 import {
   MESH_DIRECT_LAYER,
   MESH_RELAY_LAYER,
+  MESH_BADGE_LAYER,
 } from "@/components/map/map-layers";
+import { haversineKm } from "@/lib/geo";
 import type { HopFilter } from "@/components/map/MapFilters";
+
+// Au-delà de cette distance, un lien est probablement un artefact (GPS erroné /
+// module itinérant) vu la portée LoRa à La Réunion : masqué sauf toggle.
+const FAR_LINK_KM = 20;
 
 const REUNION_CENTER: [number, number] = [55.536, -21.115];
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
@@ -31,6 +37,7 @@ type MapFiltersState = {
   role: string;
   sinceH: number;
   hopFilter: HopFilter;
+  showFarLinks: boolean; // afficher aussi les liens > 20 km (artefacts probables)
 };
 
 type UseMapControllerProps = {
@@ -48,11 +55,21 @@ export function useMapController({
 }: UseMapControllerProps) {
   const [roleOptions, setRoleOptions] = useState<string[]>([]);
   const nodesById = useRef<Map<string, GeoJSON.Feature>>(new Map());
-  const obsRef = useRef<Map<string, { nodeId: string; hop: number }[]>>(
+  const obsRef = useRef<Map<string, { nodeId: string; hop: number; packets: number }[]>>(
     new Map(),
   );
   const minHopRef = useRef<Map<string, number>>(new Map());
   const bridgeRef = useRef<Set<string>>(new Set());
+  // node -> gateways qui l'ont entendu (pour recalculer l'anneau "pont" en
+  // tenant compte du filtre 20 km, cohérent avec les liens au survol).
+  const heardByRef = useRef<Map<string, Set<string>>>(new Map());
+  const bridgeSyncRef = useRef<() => void>(() => {});
+  // Arêtes NeighborInfo/Traceroute (brutes) + index d'atteignabilité NON-orienté
+  // pour le survol : nodeId -> nœuds atteints (paquet direct 2 sens + reach).
+  const reachEdgesRef = useRef<ReachEdge[]>([]);
+  const hoverLinkRef = useRef<
+    Map<string, { nodeId: string; hop: number; packets: number }[]>
+  >(new Map());
   const filtersRef = useRef(filters);
   const refreshRef = useRef<() => void>(() => {});
   const router = useRouter();
@@ -79,6 +96,7 @@ export function useMapController({
   useEffect(() => {
     filtersRef.current = filters;
     refreshRef.current();
+    bridgeSyncRef.current(); // le toggle 20 km change aussi l'anneau "pont"
   }, [filters]);
 
   useEffect(() => {
@@ -180,25 +198,44 @@ export function useMapController({
       meshRaf = null;
       meshSource()?.setData({ type: "FeatureCollection", features: [] });
     };
-    const drawMesh = (gatewayId: string, gw: LngLat): void => {
+    // Toutes les arêtes du nœud survolé (paquet direct 2 sens + NeighborInfo +
+    // Traceroute), au hop MINIMAL et au compteur de paquets MAX par nœud atteint.
+    // Couleurs = code hop existant. Liens > 20 km masqués sauf toggle. Badge du
+    // nombre de paquets au milieu du lien.
+    const drawMesh = (nodeId: string, gw: LngLat): void => {
       const src = meshSource();
       if (!src) return;
-      const { hopFilter } = filtersRef.current;
-      const targets = (obsRef.current.get(gatewayId) ?? [])
-        .filter((e) => matchesHopFilter(e.hop, hopFilter))
-        .map((e) => ({ hop: e.hop, pos: posById(e.nodeId) }))
-        .filter((t): t is { hop: number; pos: LngLat } => t.pos !== null);
+      const { hopFilter, showFarLinks } = filtersRef.current;
+      const best = new Map<string, { hop: number; packets: number }>();
+      for (const e of hoverLinkRef.current.get(nodeId) ?? []) {
+        const prev = best.get(e.nodeId);
+        if (prev === undefined) best.set(e.nodeId, { hop: e.hop, packets: e.packets });
+        else best.set(e.nodeId, { hop: Math.min(prev.hop, e.hop), packets: Math.max(prev.packets, e.packets) });
+      }
+      const targets = [...best.entries()]
+        .filter(([, v]) => matchesHopFilter(v.hop, hopFilter))
+        .map(([id, v]) => ({ hop: v.hop, packets: v.packets, pos: posById(id) }))
+        .filter((t): t is { hop: number; packets: number; pos: LngLat } => t.pos !== null)
+        .filter((t) => showFarLinks || haversineKm(gw[1], gw[0], t.pos[1], t.pos[0]) <= FAR_LINK_KM);
       if (!targets.length) return;
       const start = performance.now();
       const ease = (p: number): number => 1 - (1 - p) * (1 - p);
       const step = (now: number): void => {
         const p = ease(Math.min((now - start) / 550, 1));
-        src.setData({
-          type: "FeatureCollection",
-          features: targets.map((t) =>
-            lineFeature(gw, lerp(gw, t.pos, p), t.hop),
-          ),
-        });
+        const features: GeoJSON.Feature[] = [];
+        for (const t of targets) {
+          const end = lerp(gw, t.pos, p);
+          features.push(lineFeature(gw, end, t.hop));
+          if (t.packets > 0) {
+            const mid = lerp(gw, end, 0.5);
+            features.push({
+              type: "Feature",
+              properties: { packets: t.packets },
+              geometry: { type: "Point", coordinates: mid },
+            });
+          }
+        }
+        src.setData({ type: "FeatureCollection", features });
         if (p < 1) meshRaf = requestAnimationFrame(step);
       };
       meshRaf = requestAnimationFrame(step);
@@ -273,7 +310,9 @@ export function useMapController({
               if (pinnedNodeId) return;
               const c = m.getLngLat();
               openNodePopup(nodeId, p, m);
-              if (p.isGateway === true) drawMesh(nodeId, [c.lng, c.lat]);
+              // Survol de N'IMPORTE QUEL nœud : ses arêtes (direct + NeighborInfo
+              // + Traceroute) ; drawMesh ne dessine rien s'il n'en a aucune.
+              drawMesh(nodeId, [c.lng, c.lat]);
             });
             el.addEventListener("mouseleave", () => {
               if (tapToPreview) return;
@@ -291,7 +330,7 @@ export function useMapController({
               const c = m.getLngLat();
               openNodePopup(nodeId, p, m);
               clearMesh();
-              if (p.isGateway === true) drawMesh(nodeId, [c.lng, c.lat]);
+              drawMesh(nodeId, [c.lng, c.lat]);
             });
           }
         } else {
@@ -320,7 +359,7 @@ export function useMapController({
           for (const o of obs) {
             const hop = o.bestHop ?? 9;
             const arr = m.get(o.gatewayId) ?? [];
-            arr.push({ nodeId: o.nodeId, hop });
+            arr.push({ nodeId: o.nodeId, hop, packets: o.packets });
             m.set(o.gatewayId, arr);
             const prev = minHop.get(o.nodeId);
             if (prev === undefined || hop < prev) minHop.set(o.nodeId, hop);
@@ -328,11 +367,68 @@ export function useMapController({
             set.add(o.gatewayId);
             gwByNode.set(o.nodeId, set);
           }
-          bridgeRef.current = new Set(
-            [...gwByNode].filter(([, s]) => s.size >= 2).map(([n]) => n),
-          );
-          applyBridge();
+          heardByRef.current = gwByNode;
+          computeBridges();
+          rebuildHover();
           refreshNodes();
+        })
+        .catch(() => {});
+    };
+
+    // Anneau "vu par plusieurs gateways" : un node est un pont s'il est entendu
+    // par >= 2 gateways À MOINS DE 20 km (ou toutes si le toggle est actif),
+    // cohérent avec l'affichage des liens au survol. Nécessite les positions.
+    const computeBridges = (): void => {
+      const { showFarLinks } = filtersRef.current;
+      const bridges = new Set<string>();
+      for (const [node, gws] of heardByRef.current) {
+        const np = posById(node);
+        if (!np) continue;
+        let count = 0;
+        for (const gw of gws) {
+          if (gw === node) continue;
+          const gp = posById(gw);
+          if (!gp) continue;
+          if (showFarLinks || haversineKm(np[1], np[0], gp[1], gp[0]) <= FAR_LINK_KM) count++;
+        }
+        if (count >= 2) bridges.add(node);
+      }
+      bridgeRef.current = bridges;
+      applyBridge();
+    };
+    bridgeSyncRef.current = computeBridges;
+
+    // Index ORIENTÉ pour le survol (from -> to). Au survol d'un nœud X on lit
+    // h[X] = liens sortants, coloriés au MEILLEUR hop du sens X->Y sur la fenêtre.
+    //  - Observations : réception ~symétrique, ajoutée dans les deux sens.
+    //  - Reach (NeighborInfo/Traceroute) : déjà orientée. Le traceroute donne
+    //    l'asymétrie (A->C 1 hop via un relais, C->A 0 hop en direct).
+    const rebuildHover = (): void => {
+      const h = new Map<string, { nodeId: string; hop: number; packets: number }[]>();
+      const add = (a: string, b: string, hop: number, packets: number): void => {
+        const arr = h.get(a) ?? [];
+        arr.push({ nodeId: b, hop, packets });
+        h.set(a, arr);
+      };
+      for (const [gw, list] of obsRef.current) {
+        for (const e of list) {
+          add(gw, e.nodeId, e.hop, e.packets); // ce que gw a entendu
+          add(e.nodeId, gw, e.hop, e.packets); // sens inverse
+        }
+      }
+      for (const e of reachEdgesRef.current) {
+        // NeighborInfo / Traceroute : révèlent le lien, pas un compte de paquets.
+        add(e.fromId, e.toId, e.hop, 0);
+      }
+      hoverLinkRef.current = h;
+    };
+
+    const loadReach = (): void => {
+      fetch("/api/reach")
+        .then((r) => r.json() as Promise<ReachEdge[]>)
+        .then((edges) => {
+          reachEdgesRef.current = edges;
+          rebuildHover();
         })
         .catch(() => {});
     };
@@ -366,8 +462,10 @@ export function useMapController({
       });
       map.addLayer(MESH_DIRECT_LAYER);
       map.addLayer(MESH_RELAY_LAYER);
+      map.addLayer(MESH_BADGE_LAYER);
       refreshNodes();
       loadObservations();
+      loadReach();
     });
 
     map.on("data", (e) => {
@@ -387,6 +485,7 @@ export function useMapController({
       .then((nodes) => {
         nodes.forEach((n) => nodesById.current.set(n.nodeId, nodeFeature(n)));
         updateRoleOptions();
+        computeBridges(); // positions dispo -> recalcul de l'anneau (distance)
         refreshNodes();
       })
       .catch(() => {});

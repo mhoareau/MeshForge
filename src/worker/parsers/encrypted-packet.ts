@@ -2,11 +2,16 @@ import { createCipheriv, createDecipheriv } from "crypto";
 import protobuf from "protobufjs";
 import type { ParsedPacket, RawMeshtasticPacket } from "../../../types";
 import { deviceRoleName, hardwareModelName } from "../meshtastic/enums";
+import { decodeTraceSnr } from "./parser-utils";
+import { neighborReports } from "./neighbor-info";
+import { tracerouteInfo } from "./traceroute";
 
 const PORTNUM = {
   TEXT_MESSAGE_APP: 1,
   POSITION_APP: 3,
   NODEINFO_APP: 4,
+  TRACEROUTE_APP: 70,
+  NEIGHBORINFO_APP: 71,
   TELEMETRY_APP: 67,
 } as const;
 
@@ -77,6 +82,27 @@ message Telemetry {
   fixed32 time = 1;
   DeviceMetrics device_metrics = 2;
 }
+
+message NeighborInfo {
+  uint32 node_id = 1;
+  uint32 last_sent_by_id = 2;
+  uint32 node_broadcast_interval_secs = 3;
+  repeated Neighbor neighbors = 4;
+}
+
+message Neighbor {
+  uint32 node_id = 1;
+  float snr = 2;
+  fixed32 last_rx_time = 3;
+  uint32 node_broadcast_interval_secs = 4;
+}
+
+message RouteDiscovery {
+  repeated fixed32 route = 1;
+  repeated int32 snr_towards = 2;
+  repeated fixed32 route_back = 3;
+  repeated int32 snr_back = 4;
+}
 `;
 
 const root = protobuf.parse(PROTO, { keepCase: true }).root;
@@ -85,6 +111,8 @@ const Data = root.lookupType("meshtastic.Data");
 const Position = root.lookupType("meshtastic.Position");
 const User = root.lookupType("meshtastic.User");
 const Telemetry = root.lookupType("meshtastic.Telemetry");
+const NeighborInfo = root.lookupType("meshtastic.NeighborInfo");
+const RouteDiscovery = root.lookupType("meshtastic.RouteDiscovery");
 
 type ChannelKeys = Record<string, string>;
 type DebugLog = (message: string) => void;
@@ -113,6 +141,19 @@ type DecodedEnvelope = {
 type DecodedData = {
   portnum?: number;
   payload?: Uint8Array;
+  want_response?: boolean;
+};
+
+type DecodedNeighborInfo = {
+  node_id?: number;
+  neighbors?: { node_id?: number; snr?: number }[];
+};
+
+type DecodedRouteDiscovery = {
+  route?: number[];
+  snr_towards?: number[];
+  route_back?: number[];
+  snr_back?: number[];
 };
 
 type DecodedPosition = {
@@ -318,6 +359,32 @@ export function parseEncryptedPacket(
   if (data.portnum === PORTNUM.TELEMETRY_APP) {
     const telemetry = Telemetry.toObject(Telemetry.decode(data.payload)) as DecodedTelemetry;
     return packetFromTelemetry(packet, envelope, channel, baseRaw, telemetry);
+  }
+
+  if (data.portnum === PORTNUM.NEIGHBORINFO_APP) {
+    const info = NeighborInfo.toObject(NeighborInfo.decode(data.payload)) as DecodedNeighborInfo;
+    return basePacket(packet, envelope, channel, { ...baseRaw, type: "neighborinfo" }, {
+      packetType: "neighborinfo",
+      neighbors: neighborReports(packet.from as number, info.neighbors),
+    });
+  }
+
+  if (data.portnum === PORTNUM.TRACEROUTE_APP) {
+    const rd = RouteDiscovery.toObject(RouteDiscovery.decode(data.payload)) as DecodedRouteDiscovery;
+    const traceroute = tracerouteInfo({
+      from: packet.from as number,
+      to: numOrNull(packet.to),
+      packetId: numOrNull(packet.id),
+      route: (rd.route ?? []).map(Number),
+      snrTowards: decodeTraceSnr(rd.snr_towards),
+      routeBack: (rd.route_back ?? []).map(Number),
+      snrBack: decodeTraceSnr(rd.snr_back),
+      isRequest: data.want_response === true,
+    });
+    return basePacket(packet, envelope, channel, { ...baseRaw, type: "traceroute" }, {
+      packetType: "traceroute",
+      traceroute: traceroute ?? undefined,
+    });
   }
 
   debug?.(`drop: portnum ignoré (${data.portnum ?? "absent"})`);

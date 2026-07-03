@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import protobuf from "protobufjs";
+import type { ParsedPacket } from "../../../types";
 import {
   encryptMeshtasticPayload,
   parseChannelKeys,
@@ -37,6 +38,7 @@ message MeshPacket {
 message Data {
   uint32 portnum = 1;
   bytes payload = 2;
+  bool want_response = 3;
 }
 
 message Position {
@@ -64,7 +66,33 @@ message Telemetry {
   fixed32 time = 1;
   DeviceMetrics device_metrics = 2;
 }
+
+message NeighborInfo {
+  uint32 node_id = 1;
+  repeated Neighbor neighbors = 4;
+}
+
+message Neighbor {
+  uint32 node_id = 1;
+  float snr = 2;
+}
+
+message RouteDiscovery {
+  repeated fixed32 route = 1;
+  repeated int32 snr_towards = 2;
+  repeated fixed32 route_back = 3;
+  repeated int32 snr_back = 4;
+}
 `;
+
+// Les portnums position/nodeinfo/telemetry renvoient une seule trame ; le type
+// de retour est désormais une union (NeighborInfo/Traceroute renvoient un tableau).
+// single() extrait la trame unique pour les tests mono-paquet.
+function single(
+  p: ParsedPacket | ParsedPacket[] | null,
+): ParsedPacket | null {
+  return Array.isArray(p) ? p[0] ?? null : p;
+}
 
 const root = protobuf.parse(PROTO, { keepCase: true }).root;
 const ServiceEnvelope = root.lookupType("meshtastic.ServiceEnvelope");
@@ -72,11 +100,19 @@ const Data = root.lookupType("meshtastic.Data");
 const Position = root.lookupType("meshtastic.Position");
 const User = root.lookupType("meshtastic.User");
 const Telemetry = root.lookupType("meshtastic.Telemetry");
+const NeighborInfo = root.lookupType("meshtastic.NeighborInfo");
+const RouteDiscovery = root.lookupType("meshtastic.RouteDiscovery");
 
-function envelope(portnum: number, payload: Uint8Array): Uint8Array {
+function envelope(
+  portnum: number,
+  payload: Uint8Array,
+  opts: { to?: number; wantResponse?: boolean } = {},
+): Uint8Array {
   const from = 0xf669cf14;
   const id = 123456;
-  const data = Data.encode(Data.create({ portnum, payload })).finish();
+  const data = Data.encode(
+    Data.create({ portnum, payload, want_response: opts.wantResponse }),
+  ).finish();
   const encrypted = encryptMeshtasticPayload(data, KEY, id, from);
 
   return ServiceEnvelope.encode(
@@ -85,7 +121,7 @@ function envelope(portnum: number, payload: Uint8Array): Uint8Array {
       gateway_id: "!f669cf14",
       packet: {
         from,
-        to: 0xffffffff,
+        to: opts.to ?? 0xffffffff,
         channel: 0,
         encrypted,
         id,
@@ -110,12 +146,12 @@ describe("parseEncryptedPacket", () => {
       }),
     ).finish();
 
-    const parsed = parseEncryptedPacket(
+    const parsed = single(parseEncryptedPacket(
       TOPIC,
       envelope(3, payload),
       CHANNELS,
       parseChannelKeys("Fr_Balise:AQ=="),
-    );
+    ));
 
     expect(parsed?.packetType).toBe("position");
     expect(parsed?.nodeId).toBe("!f669cf14");
@@ -137,12 +173,12 @@ describe("parseEncryptedPacket", () => {
       }),
     ).finish();
 
-    const parsed = parseEncryptedPacket(
+    const parsed = single(parseEncryptedPacket(
       TOPIC,
       envelope(4, payload),
       CHANNELS,
       parseChannelKeys("Fr_Balise:AQ=="),
-    );
+    ));
 
     expect(parsed?.packetType).toBe("nodeinfo");
     expect(parsed?.longName).toBe("Piton");
@@ -163,12 +199,12 @@ describe("parseEncryptedPacket", () => {
       }),
     ).finish();
 
-    const parsed = parseEncryptedPacket(
+    const parsed = single(parseEncryptedPacket(
       TOPIC,
       envelope(67, payload),
       CHANNELS,
       parseChannelKeys("Fr_Balise:AQ=="),
-    );
+    ));
 
     expect(parsed?.packetType).toBe("telemetry");
     expect(parsed?.batteryPct).toBe(82);
@@ -225,16 +261,86 @@ describe("parseEncryptedPacket", () => {
       "base64",
     );
 
-    const parsed = parseEncryptedPacket(
+    const parsed = single(parseEncryptedPacket(
       TOPIC,
       raw,
       CHANNELS,
       parseChannelKeys("Fr_Balise:AQ=="),
-    );
+    ));
 
     expect(parsed?.packetType).toBe("nodeinfo");
     expect(parsed?.nodeId).toBe("!f669cf14");
     expect(parsed?.longName).toBe("974SJOSLM8ClP_P137");
     expect(parsed?.shortName).toBe("Rob1");
+  });
+
+  it("décode un /e/ NEIGHBORINFO_APP : voisins attachés à la trame", () => {
+    const payload = NeighborInfo.encode(
+      NeighborInfo.create({
+        node_id: 0xf669cf14,
+        neighbors: [
+          { node_id: 0x11111111, snr: 6.5 },
+          { node_id: 0x22222222, snr: -2 },
+        ],
+      }),
+    ).finish();
+
+    const parsed = single(
+      parseEncryptedPacket(TOPIC, envelope(71, payload), CHANNELS, parseChannelKeys("Fr_Balise:AQ==")),
+    );
+    expect(parsed?.packetType).toBe("neighborinfo");
+    expect(parsed?.nodeId).toBe("!f669cf14");
+    expect(parsed?.neighbors).toEqual([
+      { neighborId: "!11111111", snr: 6.5 },
+      { neighborId: "!22222222", snr: -2 },
+    ]);
+  });
+
+  it("décode un /e/ TRACEROUTE_APP (réponse) : segments aller attachés + SNR ÷4", () => {
+    const origin = 0x0a0a0a0a;
+    const relay = 0x0b0b0b0b;
+    const payload = RouteDiscovery.encode(
+      RouteDiscovery.create({ route: [relay], snr_towards: [24, 12] }), // ÷4 -> 6, 3 dB
+    ).finish();
+
+    const parsed = single(
+      parseEncryptedPacket(
+        TOPIC,
+        envelope(70, payload, { to: origin, wantResponse: false }),
+        CHANNELS,
+        parseChannelKeys("Fr_Balise:AQ=="),
+      ),
+    );
+    expect(parsed?.packetType).toBe("traceroute");
+    const t = parsed?.traceroute;
+    expect(t?.sourceNode).toBe("!0a0a0a0a"); // origine = to
+    expect(t?.targetNode).toBe("!f669cf14"); // destination = from
+    // Aller = [origin, relay, dest] -> 2 segments forward avec SNR décodé.
+    const fwd = (t?.segments ?? []).filter((s) => s.direction === "forward");
+    expect(fwd.map((s) => [s.fromNode, s.toNode, s.snr])).toEqual([
+      ["!0a0a0a0a", "!0b0b0b0b", 6],
+      ["!0b0b0b0b", "!f669cf14", 3],
+    ]);
+  });
+
+  it("traceroute requête en vol : source = from, aucun segment retour", () => {
+    const dest = 0x0c0c0c0c;
+    const relay = 0x0b0b0b0b;
+    const payload = RouteDiscovery.encode(
+      RouteDiscovery.create({ route: [relay], snr_towards: [20] }),
+    ).finish();
+
+    const parsed = single(
+      parseEncryptedPacket(
+        TOPIC,
+        envelope(70, payload, { to: dest, wantResponse: true }),
+        CHANNELS,
+        parseChannelKeys("Fr_Balise:AQ=="),
+      ),
+    );
+    const t = parsed?.traceroute;
+    expect(t?.sourceNode).toBe("!f669cf14"); // origine = from (requête)
+    expect(t?.targetNode).toBe("!0c0c0c0c");
+    expect((t?.segments ?? []).every((s) => s.direction === "forward")).toBe(true);
   });
 });

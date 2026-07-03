@@ -3,6 +3,9 @@ import { parseChannelKeys, parseEncryptedPacket } from "./encrypted-packet";
 import { parseMessage } from "./json-packet";
 import { parseMapReport } from "./map-report";
 
+// Aiguillage par topic. NeighborInfo/Traceroute attachent leurs données
+// diagnostiques (voisins / segments) à la trame de base ; le worker les route
+// vers les tables dédiées.
 export function parseMqttPacket(
   topic: string,
   message: Buffer,

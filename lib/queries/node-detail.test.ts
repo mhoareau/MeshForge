@@ -33,7 +33,7 @@ describe("toHistoryPoints", () => {
 
 // Liens vers les gateways (multi-SNR pour un nœud-pont). bestHop 0 = lien direct.
 describe("toGatewayLinks", () => {
-  it("coerce snr/bestHop/packets et garde le nom du gateway", () => {
+  it("coerce snr/bestHop/packets, garde le nom + remonte lastHeard en ISO", () => {
     expect(
       toGatewayLinks([
         {
@@ -42,6 +42,7 @@ describe("toGatewayLinks", () => {
           snr: "3.2",
           bestHop: "0",
           packets: "9",
+          lastHeard: new Date("2026-06-30T08:15:00Z"),
           gwLat: null,
           gwLon: null,
         },
@@ -54,6 +55,7 @@ describe("toGatewayLinks", () => {
         bestHop: 0,
         packets: 9,
         distanceKm: null,
+        lastHeard: "2026-06-30T08:15:00.000Z",
       },
     ]);
   });
@@ -66,6 +68,7 @@ describe("toGatewayLinks", () => {
         snr: null,
         bestHop: null,
         packets: "1",
+        lastHeard: new Date("2026-06-29T00:00:00Z"),
         gwLat: null,
         gwLon: null,
       },
@@ -85,6 +88,7 @@ describe("toGatewayLinks", () => {
           snr: "1.0",
           bestHop: "0",
           packets: "5",
+          lastHeard: new Date("2026-06-30T08:15:00Z"),
           gwLat: -21.3393,
           gwLon: 55.4781,
         },
@@ -104,6 +108,7 @@ describe("toGatewayLinks", () => {
         snr: "1.0",
         bestHop: "0",
         packets: "5",
+        lastHeard: new Date("2026-06-30T08:15:00Z"),
         gwLat: -21.3,
         gwLon: 55.4,
       },
@@ -125,6 +130,8 @@ describe("toHeardNodes", () => {
           bestHop: "0",
           packets: "7",
           lastHeard: new Date("2026-06-30T08:15:00Z"),
+          nLat: null,
+          nLon: null,
           hasPosition: true,
         },
       ]),
@@ -136,12 +143,35 @@ describe("toHeardNodes", () => {
         bestHop: 0,
         packets: 7,
         lastHeard: "2026-06-30T08:15:00.000Z",
+        distanceKm: null,
         hasPosition: true,
       },
     ]);
   });
 
-  it("garde un node sans nom, sans position et hop null", () => {
+  it("calcule la distance node sujet ↔ node entendu quand les 2 positions sont connues", () => {
+    const h = toHeardNodes(
+      [
+        {
+          nodeId: "!src3",
+          nodeName: "Balise Nord",
+          snr: "2.0",
+          bestHop: "1",
+          packets: "3",
+          lastHeard: new Date("2026-06-30T08:15:00Z"),
+          nLat: -21.3393,
+          nLon: 55.4781,
+          hasPosition: true,
+        },
+      ],
+      -20.8789,
+      55.4481,
+    )[0];
+    expect(h.distanceKm).toBeGreaterThan(48);
+    expect(h.distanceKm).toBeLessThan(54);
+  });
+
+  it("garde un node sans nom, sans position et hop null (distance null)", () => {
     const h = toHeardNodes([
       {
         nodeId: "!src2",
@@ -150,6 +180,8 @@ describe("toHeardNodes", () => {
         bestHop: null,
         packets: "1",
         lastHeard: new Date("2026-06-29T00:00:00Z"),
+        nLat: null,
+        nLon: null,
         hasPosition: false,
       },
     ])[0];
@@ -157,6 +189,7 @@ describe("toHeardNodes", () => {
     expect(h.snr).toBeNull();
     expect(h.bestHop).toBeNull();
     expect(h.hasPosition).toBe(false);
+    expect(h.distanceKm).toBeNull();
     expect(h.nodeId).toBe("!src2");
   });
 });

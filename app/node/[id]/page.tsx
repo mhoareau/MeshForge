@@ -3,8 +3,11 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import SiteHeader from "@/components/SiteHeader";
 import NodeCharts from "@/components/NodeCharts";
+import NodeNeighborhood from "@/components/NodeNeighborhood";
+import NodeLinksTables from "@/components/NodeLinksTables";
 import { isAdmin } from "@/lib/admin";
 import { isSameOrigin } from "@/lib/security";
+import { snapToGrid } from "@/lib/privacy";
 import {
   getNodeById,
   setNodeExcluded,
@@ -19,6 +22,8 @@ import {
   getNodeHeardNodes,
   getNodeDeviceMetrics,
 } from "@/lib/queries/node-detail";
+import { getNodeMapLinks } from "@/lib/queries/node-map-links";
+import { getNodeTraceroutes } from "@/lib/queries/traceroutes";
 
 // Request-time : interroge la DB.
 export const dynamic = "force-dynamic";
@@ -32,12 +37,32 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
+// En-tête de section : titre + méta + descriptif, avec un filet de séparation
+// pour bien distinguer les sections les unes des autres.
+function SectionTitle({
+  title,
+  meta,
+  desc,
+}: {
+  title: string;
+  meta?: string;
+  desc: string;
+}) {
+  return (
+    <div className="mb-3 border-t border-black/10 pt-5 dark:border-white/10">
+      <h3 className="text-sm font-semibold">
+        {title}
+        {meta && <span className="font-normal text-zinc-500"> {meta}</span>}
+      </h3>
+      <p className="mt-0.5 text-xs text-zinc-500">{desc}</p>
+    </div>
+  );
+}
+
 const fmt = (v: string | number | null, suffix = ""): string =>
   v === null ? "—" : `${v}${suffix}`;
 const date = (iso: string | null): string =>
   iso ? new Date(iso).toLocaleString("fr-FR") : "—";
-const hopLabel = (h: number | null): string =>
-  h === 0 ? "direct" : h === null ? "—" : `${h} hop${h > 1 ? "s" : ""}`;
 
 async function requireAdminMutation(returnTo: string) {
   if (!(await isAdmin())) redirect("/admin/login");
@@ -56,12 +81,14 @@ export default async function NodePage({
   // node chargé d'abord : sa position alimente le calcul de distance vers les gateways.
   const node = await getNodeById(nodeId);
   if (!node) notFound();
-  const [history, gateways, heardNodes, deviceMetrics, admin] =
+  const [history, gateways, heardNodes, deviceMetrics, mapLinks, traceroutes, admin] =
     await Promise.all([
       getNodeHistory(nodeId),
       getNodeGateways(nodeId, node.lat, node.lon),
-      getNodeHeardNodes(nodeId),
+      getNodeHeardNodes(nodeId, node.lat, node.lon),
       getNodeDeviceMetrics(nodeId),
+      getNodeMapLinks(nodeId),
+      getNodeTraceroutes(nodeId),
       isAdmin(),
     ]);
   // Opt-out RGPD : un node retiré est invisible au public (mais l'admin le voit
@@ -121,6 +148,13 @@ export default async function NodePage({
 
   const title = node.longName ?? node.shortName ?? node.nodeId;
   const isBridge = gateways.length >= 2;
+  // PRIVACY : position du sujet snappée sauf relais fixe explicite (is_mobile
+  // FALSE). Défaut prudent TRUE/NULL -> floutée, cohérent avec neighbors.ts /
+  // node-map-links.ts (r.isMobile !== false) et la carte publique.
+  const subjectPos =
+    node.lat != null && node.lon != null && node.isMobile !== false
+      ? snapToGrid(node.lat, node.lon)
+      : { lat: node.lat, lon: node.lon };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -154,87 +188,37 @@ export default async function NodePage({
         </section>
 
         <section className="mt-8">
-          <h3 className="mb-3 text-sm font-semibold">
-            Signal vers les gateways{" "}
-            <span className="font-normal text-zinc-500">(30 j)</span>
-          </h3>
-          {gateways.length === 0 ? (
-            <p className="text-sm text-zinc-400">
-              Aucun gateway ne l&apos;a entendu sur 30 j.
-            </p>
-          ) : (
-            <ul className="divide-y divide-black/5 rounded-lg border border-black/10 dark:divide-white/10 dark:border-white/15">
-              {gateways.map((g) => (
-                <li
-                  key={g.gatewayId}
-                  className="flex flex-col gap-1 px-4 py-2 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4"
-                >
-                  <span className="font-medium">{g.gatewayName ?? g.gatewayId}</span>
-                  <span className="flex flex-wrap gap-x-4 gap-y-0.5 font-mono text-zinc-600 dark:text-zinc-300">
-                    <span>{fmt(g.snr, " dB")}</span>
-                    <span className={g.bestHop === 0 ? "text-emerald-600" : ""}>
-                      {hopLabel(g.bestHop)}
-                    </span>
-                    {g.distanceKm != null && (
-                      <span
-                        className={g.bestHop === 0 ? "text-emerald-600" : "text-zinc-400"}
-                      >
-                        {g.distanceKm} km
-                      </span>
-                    )}
-                    <span className="text-zinc-400">{g.packets} pqts</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <SectionTitle
+            title="Liens radio"
+            meta="(30 j)"
+            desc="Qui a capté ce nœud (gateways) et ce que ce nœud a capté. Cliquez sur les en-têtes pour trier."
+          />
+          <NodeLinksTables gateways={gateways} heardNodes={heardNodes} />
         </section>
 
         <section className="mt-8">
-          <h3 className="mb-3 text-sm font-semibold">
-            Nœuds entendus par ce nœud{" "}
-            <span className="font-normal text-zinc-500">(30 j)</span>
-          </h3>
-          {heardNodes.length === 0 ? (
-            <p className="text-sm text-zinc-400">
-              Ce nœud n&apos;a relayé aucun autre nœud sur 30 j.
-            </p>
-          ) : (
-            <ul className="divide-y divide-black/5 rounded-lg border border-black/10 dark:divide-white/10 dark:border-white/15">
-              {heardNodes.map((h) => (
-                <li
-                  key={h.nodeId}
-                  className="flex flex-col gap-1 px-4 py-2 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4"
-                >
-                  <span className="flex flex-wrap items-center gap-2">
-                    <Link
-                      href={`/node/${encodeURIComponent(h.nodeId)}`}
-                      className="font-medium hover:underline"
-                    >
-                      {h.nodeName ?? h.nodeId}
-                    </Link>
-                    {!h.hasPosition && (
-                      <span className="rounded bg-zinc-500/15 px-1.5 py-0.5 text-xs text-zinc-500">
-                        sans position
-                      </span>
-                    )}
-                  </span>
-                  <span className="flex flex-wrap gap-x-4 gap-y-0.5 font-mono text-zinc-600 dark:text-zinc-300">
-                    <span>{fmt(h.snr, " dB")}</span>
-                    <span className={h.bestHop === 0 ? "text-emerald-600" : ""}>
-                      {hopLabel(h.bestHop)}
-                    </span>
-                    <span className="text-zinc-400">{h.packets} pqts</span>
-                    <span className="text-zinc-400">{date(h.lastHeard)}</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <SectionTitle
+            title="Voisinage réseau"
+            meta="(30 j)"
+            desc="Tout ce à quoi ce nœud est lié (paquets captés + NeighborInfo), sur une mini-carte. Filtrez par type de paquet ; survolez un nœud pour le chemin traceroute (intermédiaires + SNR par saut)."
+          />
+          <NodeNeighborhood
+            node={{
+              nodeId: node.nodeId,
+              name: title,
+              lat: subjectPos.lat,
+              lon: subjectPos.lon,
+            }}
+            links={mapLinks}
+            traceroutes={traceroutes}
+          />
         </section>
 
         <section className="mt-8">
-          <h3 className="mb-3 text-sm font-semibold">Télémétrie appareil</h3>
+          <SectionTitle
+            title="Télémétrie appareil"
+            desc="Dernières mesures internes de l'appareil : tension, utilisation du canal, temps d'antenne (air time)."
+          />
           {deviceMetrics.voltage == null &&
           deviceMetrics.channelUtil == null &&
           deviceMetrics.airUtilTx == null ? (
@@ -258,9 +242,11 @@ export default async function NodePage({
         </section>
 
         <section className="mt-8">
-          <h3 className="mb-3 text-sm font-semibold">
-            Historique <span className="font-normal text-zinc-500">(30 j)</span>
-          </h3>
+          <SectionTitle
+            title="Historique"
+            meta="(30 j)"
+            desc="Évolution sur 30 jours : SNR moyen, batterie et nombre de paquets par jour."
+          />
           <NodeCharts data={history} />
         </section>
 

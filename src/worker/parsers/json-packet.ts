@@ -2,6 +2,8 @@
 // Copyright (C) 2026 Robin Lebon — La Forge Numérique
 import type { RawMeshtasticPacket, ParsedPacket } from "../../../types";
 import { hardwareModelName, deviceRoleName } from "../meshtastic/enums";
+import { neighborReports } from "./neighbor-info";
+import { tracerouteInfo } from "./traceroute";
 
 // NodeNum entier -> NodeID hex Meshtastic. Ex: 4134129428 -> "!f669cf14".
 // `>>> 0` force l'interprétation non signée (NodeNum va jusqu'à 0xFFFFFFFF).
@@ -59,6 +61,35 @@ export function parseMessage(
     hwModel: isNodeInfo ? hardwareModelName(payload.hardware) : null,
     firmware: null,
     role: isNodeInfo ? deviceRoleName(payload.role) : null,
+    // NeighborInfo / Traceroute : données diagnostiques attachées à la trame.
+    // JSON : le barème SNR des traceroute n'est pas fiable -> SNR par saut null ;
+    // sans want_response, le sens est indéterminé -> pas de segments (cf. tracerouteInfo).
+    neighbors:
+      raw.type === "neighborinfo"
+        ? neighborReports(raw.from, asNeighbors(payload.neighbors))
+        : undefined,
+    traceroute:
+      raw.type === "traceroute"
+        ? tracerouteInfo({
+            from: raw.from,
+            to: numOrNull(raw.to),
+            packetId: numOrNull(raw.id),
+            route: asNumArray(payload.route),
+            snrTowards: [],
+            routeBack: asNumArray(payload.route_back),
+            snrBack: [],
+            isRequest:
+              typeof raw.want_response === "boolean" ? raw.want_response : undefined,
+          }) ?? undefined
+        : undefined,
     raw,
   };
+}
+
+function asNeighbors(v: unknown): { node_id?: number; snr?: number }[] | undefined {
+  return Array.isArray(v) ? (v as { node_id?: number; snr?: number }[]) : undefined;
+}
+
+function asNumArray(v: unknown): number[] {
+  return Array.isArray(v) ? v.map(Number) : [];
 }
