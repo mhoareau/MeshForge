@@ -20,8 +20,14 @@ import {
 import {
   MESH_DIRECT_LAYER,
   MESH_RELAY_LAYER,
+  MESH_BADGE_LAYER,
 } from "@/components/map/map-layers";
+import { haversineKm } from "@/lib/geo";
 import type { HopFilter } from "@/components/map/MapFilters";
+
+// Au-delà de cette distance, un lien est probablement un artefact (GPS erroné /
+// module itinérant) vu la portée LoRa à La Réunion : masqué sauf toggle.
+const FAR_LINK_KM = 20;
 
 const REUNION_CENTER: [number, number] = [55.536, -21.115];
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
@@ -31,6 +37,7 @@ type MapFiltersState = {
   role: string;
   sinceH: number;
   hopFilter: HopFilter;
+  showFarLinks: boolean; // afficher aussi les liens > 20 km (artefacts probables)
 };
 
 type UseMapControllerProps = {
@@ -48,7 +55,7 @@ export function useMapController({
 }: UseMapControllerProps) {
   const [roleOptions, setRoleOptions] = useState<string[]>([]);
   const nodesById = useRef<Map<string, GeoJSON.Feature>>(new Map());
-  const obsRef = useRef<Map<string, { nodeId: string; hop: number }[]>>(
+  const obsRef = useRef<Map<string, { nodeId: string; hop: number; packets: number }[]>>(
     new Map(),
   );
   const minHopRef = useRef<Map<string, number>>(new Map());
@@ -56,9 +63,9 @@ export function useMapController({
   // Arêtes NeighborInfo/Traceroute (brutes) + index d'atteignabilité NON-orienté
   // pour le survol : nodeId -> nœuds atteints (paquet direct 2 sens + reach).
   const reachEdgesRef = useRef<ReachEdge[]>([]);
-  const hoverLinkRef = useRef<Map<string, { nodeId: string; hop: number }[]>>(
-    new Map(),
-  );
+  const hoverLinkRef = useRef<
+    Map<string, { nodeId: string; hop: number; packets: number }[]>
+  >(new Map());
   const filtersRef = useRef(filters);
   const refreshRef = useRef<() => void>(() => {});
   const router = useRouter();
@@ -187,31 +194,43 @@ export function useMapController({
       meshSource()?.setData({ type: "FeatureCollection", features: [] });
     };
     // Toutes les arêtes du nœud survolé (paquet direct 2 sens + NeighborInfo +
-    // Traceroute), au hop MINIMAL par nœud atteint. Couleurs = code hop existant.
+    // Traceroute), au hop MINIMAL et au compteur de paquets MAX par nœud atteint.
+    // Couleurs = code hop existant. Liens > 20 km masqués sauf toggle. Badge du
+    // nombre de paquets au milieu du lien.
     const drawMesh = (nodeId: string, gw: LngLat): void => {
       const src = meshSource();
       if (!src) return;
-      const { hopFilter } = filtersRef.current;
-      const best = new Map<string, number>();
+      const { hopFilter, showFarLinks } = filtersRef.current;
+      const best = new Map<string, { hop: number; packets: number }>();
       for (const e of hoverLinkRef.current.get(nodeId) ?? []) {
         const prev = best.get(e.nodeId);
-        if (prev === undefined || e.hop < prev) best.set(e.nodeId, e.hop);
+        if (prev === undefined) best.set(e.nodeId, { hop: e.hop, packets: e.packets });
+        else best.set(e.nodeId, { hop: Math.min(prev.hop, e.hop), packets: Math.max(prev.packets, e.packets) });
       }
       const targets = [...best.entries()]
-        .filter(([, hop]) => matchesHopFilter(hop, hopFilter))
-        .map(([id, hop]) => ({ hop, pos: posById(id) }))
-        .filter((t): t is { hop: number; pos: LngLat } => t.pos !== null);
+        .filter(([, v]) => matchesHopFilter(v.hop, hopFilter))
+        .map(([id, v]) => ({ hop: v.hop, packets: v.packets, pos: posById(id) }))
+        .filter((t): t is { hop: number; packets: number; pos: LngLat } => t.pos !== null)
+        .filter((t) => showFarLinks || haversineKm(gw[1], gw[0], t.pos[1], t.pos[0]) <= FAR_LINK_KM);
       if (!targets.length) return;
       const start = performance.now();
       const ease = (p: number): number => 1 - (1 - p) * (1 - p);
       const step = (now: number): void => {
         const p = ease(Math.min((now - start) / 550, 1));
-        src.setData({
-          type: "FeatureCollection",
-          features: targets.map((t) =>
-            lineFeature(gw, lerp(gw, t.pos, p), t.hop),
-          ),
-        });
+        const features: GeoJSON.Feature[] = [];
+        for (const t of targets) {
+          const end = lerp(gw, t.pos, p);
+          features.push(lineFeature(gw, end, t.hop));
+          if (t.packets > 0) {
+            const mid = lerp(gw, end, 0.5);
+            features.push({
+              type: "Feature",
+              properties: { packets: t.packets },
+              geometry: { type: "Point", coordinates: mid },
+            });
+          }
+        }
+        src.setData({ type: "FeatureCollection", features });
         if (p < 1) meshRaf = requestAnimationFrame(step);
       };
       meshRaf = requestAnimationFrame(step);
@@ -335,7 +354,7 @@ export function useMapController({
           for (const o of obs) {
             const hop = o.bestHop ?? 9;
             const arr = m.get(o.gatewayId) ?? [];
-            arr.push({ nodeId: o.nodeId, hop });
+            arr.push({ nodeId: o.nodeId, hop, packets: o.packets });
             m.set(o.gatewayId, arr);
             const prev = minHop.get(o.nodeId);
             if (prev === undefined || hop < prev) minHop.set(o.nodeId, hop);
@@ -355,21 +374,22 @@ export function useMapController({
 
     // Index NON-orienté pour le survol : observations (2 sens) + reach.
     const rebuildHover = (): void => {
-      const h = new Map<string, { nodeId: string; hop: number }[]>();
-      const add = (a: string, b: string, hop: number): void => {
+      const h = new Map<string, { nodeId: string; hop: number; packets: number }[]>();
+      const add = (a: string, b: string, hop: number, packets: number): void => {
         const arr = h.get(a) ?? [];
-        arr.push({ nodeId: b, hop });
+        arr.push({ nodeId: b, hop, packets });
         h.set(a, arr);
       };
       for (const [gw, list] of obsRef.current) {
         for (const e of list) {
-          add(gw, e.nodeId, e.hop); // ce que gw a entendu
-          add(e.nodeId, gw, e.hop); // gw a entendu ce node (sens inverse)
+          add(gw, e.nodeId, e.hop, e.packets); // ce que gw a entendu
+          add(e.nodeId, gw, e.hop, e.packets); // sens inverse
         }
       }
       for (const e of reachEdgesRef.current) {
-        add(e.aId, e.bId, e.hop); // NeighborInfo / Traceroute (non-orienté)
-        add(e.bId, e.aId, e.hop);
+        // NeighborInfo / Traceroute : révèlent le lien, pas un compte de paquets.
+        add(e.aId, e.bId, e.hop, 0);
+        add(e.bId, e.aId, e.hop, 0);
       }
       hoverLinkRef.current = h;
     };
@@ -413,6 +433,7 @@ export function useMapController({
       });
       map.addLayer(MESH_DIRECT_LAYER);
       map.addLayer(MESH_RELAY_LAYER);
+      map.addLayer(MESH_BADGE_LAYER);
       refreshNodes();
       loadObservations();
       loadReach();

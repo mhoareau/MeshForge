@@ -36,6 +36,28 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
+// En-tête de section : titre + méta + descriptif, avec un filet de séparation
+// pour bien distinguer les sections les unes des autres.
+function SectionTitle({
+  title,
+  meta,
+  desc,
+}: {
+  title: string;
+  meta?: string;
+  desc: string;
+}) {
+  return (
+    <div className="mb-3 border-t border-black/10 pt-5 dark:border-white/10">
+      <h3 className="text-sm font-semibold">
+        {title}
+        {meta && <span className="font-normal text-zinc-500"> {meta}</span>}
+      </h3>
+      <p className="mt-0.5 text-xs text-zinc-500">{desc}</p>
+    </div>
+  );
+}
+
 const fmt = (v: string | number | null, suffix = ""): string =>
   v === null ? "—" : `${v}${suffix}`;
 const date = (iso: string | null): string =>
@@ -165,10 +187,11 @@ export default async function NodePage({
         </section>
 
         <section className="mt-8">
-          <h3 className="mb-3 text-sm font-semibold">
-            Signal vers les gateways{" "}
-            <span className="font-normal text-zinc-500">(30 j)</span>
-          </h3>
+          <SectionTitle
+            title="Signal vers les gateways"
+            meta="(30 j)"
+            desc="Les passerelles MQTT qui ont capté ce nœud : qualité du lien (SNR), nombre de sauts et distance."
+          />
           {gateways.length === 0 ? (
             <p className="text-sm text-zinc-400">
               Aucun gateway ne l&apos;a entendu sur 30 j.
@@ -202,10 +225,11 @@ export default async function NodePage({
         </section>
 
         <section className="mt-8">
-          <h3 className="mb-3 text-sm font-semibold">
-            Nœuds entendus par ce nœud{" "}
-            <span className="font-normal text-zinc-500">(30 j)</span>
-          </h3>
+          <SectionTitle
+            title="Nœuds entendus par ce nœud"
+            meta="(30 j)"
+            desc="Les nœuds que ce nœud a reçus (il agit alors en récepteur), en direct ou via relais."
+          />
           {heardNodes.length === 0 ? (
             <p className="text-sm text-zinc-400">
               Ce nœud n&apos;a relayé aucun autre nœud sur 30 j.
@@ -245,10 +269,11 @@ export default async function NodePage({
         </section>
 
         <section className="mt-8">
-          <h3 className="mb-3 text-sm font-semibold">
-            Voisinage réseau{" "}
-            <span className="font-normal text-zinc-500">(NeighborInfo · 30 j)</span>
-          </h3>
+          <SectionTitle
+            title="Voisinage réseau"
+            meta="(NeighborInfo · 30 j)"
+            desc="Voisins directs déclarés par ce nœud (module NeighborInfo). Survolez un voisin pour le chemin traceroute (nœuds intermédiaires + SNR par saut)."
+          />
           <NodeNeighborhood
             node={{
               nodeId: node.nodeId,
@@ -262,7 +287,10 @@ export default async function NodePage({
         </section>
 
         <section className="mt-8">
-          <h3 className="mb-3 text-sm font-semibold">Télémétrie appareil</h3>
+          <SectionTitle
+            title="Télémétrie appareil"
+            desc="Dernières mesures internes de l'appareil : tension, utilisation du canal, temps d'antenne (air time)."
+          />
           {deviceMetrics.voltage == null &&
           deviceMetrics.channelUtil == null &&
           deviceMetrics.airUtilTx == null ? (
@@ -286,9 +314,11 @@ export default async function NodePage({
         </section>
 
         <section className="mt-8">
-          <h3 className="mb-3 text-sm font-semibold">
-            Historique <span className="font-normal text-zinc-500">(30 j)</span>
-          </h3>
+          <SectionTitle
+            title="Historique"
+            meta="(30 j)"
+            desc="Évolution sur 30 jours : SNR moyen, batterie et nombre de paquets par jour."
+          />
           <NodeCharts data={history} />
         </section>
 

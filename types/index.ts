@@ -138,6 +138,7 @@ export interface Observation {
   nodeId: string;
   bestHop: number | null;
   snr: number | null;
+  packets: number; // nb de paquets (toutes catégories) captés pour cette paire
 }
 
 // Arête d'ATTEIGNABILITÉ (API /api/reach), pour enrichir le survol d'un nœud :
