@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { jsonMeshEdges, parseMessage } from "./json-packet";
+import { parseMessage } from "./json-packet";
 import type { RawMeshtasticPacket } from "../../../types";
 
 const CHANNELS = ["Fr_Balise", "Fr_EMCOM", "Fr_BlaBla"];
@@ -146,147 +146,64 @@ describe("parseMessage — champs nodeinfo", () => {
   });
 });
 
-describe("jsonMeshEdges — NeighborInfo", () => {
-  it("crée une arête reporter -> voisin par voisin entendu", () => {
-    const edges = jsonMeshEdges(
+describe("parseMessage — NeighborInfo", () => {
+  it("attache les voisins directs (exclut broadcast / soi-même)", () => {
+    const parsed = parseMessage(
+      topic("Fr_Balise"),
       raw({
         type: "neighborinfo",
         payload: {
           neighbors: [
-            { node_id: 0x11111111, snr: 6.5 },
-            { node_id: 0x22222222, snr: -2 },
-          ],
-        },
-      }),
-      "Fr_Balise",
-    );
-    expect(edges).toHaveLength(2);
-    const e = edges.find((x) => x.nodeId === "!11111111")!;
-    expect(e.gatewayId).toBe("!f669cf14");
-    expect(e.packetType).toBe("neighbor");
-    expect(e.hopCount).toBe(0);
-    expect(e.snr).toBeCloseTo(6.5);
-    expect(e.edgeOnly).toBe(true);
-  });
-
-  it("ignore les voisins broadcast/soi-même", () => {
-    const edges = jsonMeshEdges(
-      raw({
-        type: "neighborinfo",
-        payload: {
-          neighbors: [
-            { node_id: 0xffffffff, snr: 1 },
-            { node_id: 0xf669cf14, snr: 1 },
+            { node_id: 0xffffffff, snr: 1 }, // broadcast -> ignoré
+            { node_id: 0xf669cf14, snr: 1 }, // soi-même -> ignoré
             { node_id: 0x33333333, snr: 4 },
           ],
         },
       }),
-      "Fr_Balise",
+      CHANNELS,
     );
-    expect(edges.map((e) => e.nodeId)).toEqual(["!33333333"]);
+    expect(parsed?.neighbors).toEqual([{ neighborId: "!33333333", snr: 4 }]);
   });
 
-  it("renvoie [] pour un type non concerné", () => {
-    expect(jsonMeshEdges(raw({ type: "position" }), "Fr_Balise")).toEqual([]);
+  it("neighbors undefined sur les autres types", () => {
+    const parsed = parseMessage(topic("Fr_Balise"), raw({ type: "position" }), CHANNELS);
+    expect(parsed?.neighbors).toBeUndefined();
   });
 
-  it("renvoie [] si `from` n'est pas numérique", () => {
-    expect(
-      jsonMeshEdges({ type: "neighborinfo" } as RawMeshtasticPacket, "Fr_Balise"),
-    ).toEqual([]);
-  });
-
-  it("renvoie [] si le reporter est invalide (NodeNum 0)", () => {
-    const edges = jsonMeshEdges(
-      raw({ from: 0, type: "neighborinfo", payload: { neighbors: [{ node_id: 1, snr: 1 }] } }),
-      "Fr_Balise",
-    );
-    expect(edges).toEqual([]);
-  });
-
-  it("renvoie [] si `neighbors` n'est pas un tableau", () => {
-    expect(jsonMeshEdges(raw({ type: "neighborinfo", payload: {} }), "Fr_Balise")).toEqual([]);
-  });
-
-  it("ignore un voisin sans node_id numérique", () => {
-    const edges = jsonMeshEdges(
-      raw({
-        type: "neighborinfo",
-        payload: { neighbors: [{ snr: 5 }, { node_id: 0x44444444, snr: 3 }] },
-      }),
-      "Fr_Balise",
-    );
-    expect(edges.map((e) => e.nodeId)).toEqual(["!44444444"]);
+  it("payload sans tableau neighbors -> liste vide", () => {
+    const parsed = parseMessage(topic("Fr_Balise"), raw({ type: "neighborinfo", payload: {} }), CHANNELS);
+    expect(parsed?.neighbors).toEqual([]);
   });
 });
 
-describe("jsonMeshEdges — Traceroute", () => {
-  it("réponse (want_response=false) : relie les sauts aller aux extrémités, sans SNR", () => {
-    const edges = jsonMeshEdges(
-      raw({
-        type: "traceroute",
-        to: 0x0a0a0a0a, // origine
-        want_response: false,
-        payload: { route: [0x0b0b0b0b] },
-      } as Partial<RawMeshtasticPacket>),
-      "Fr_Balise",
-    );
-    // aller = [origine, relay, dest=from] -> 2 sauts ; barème SNR JSON incertain -> null.
-    expect(edges).toHaveLength(2);
-    expect(edges.every((e) => e.snr === null && e.hopCount === 0 && e.edgeOnly)).toBe(true);
-    expect(edges.find((e) => e.nodeId === "!0a0a0a0a")?.gatewayId).toBe("!0b0b0b0b");
-    expect(edges.find((e) => e.nodeId === "!0b0b0b0b")?.gatewayId).toBe("!f669cf14");
-  });
-
-  it("sens inconnu (pas de want_response) : relie seulement les relais consécutifs", () => {
-    const edges = jsonMeshEdges(
-      raw({
-        type: "traceroute",
-        to: 0x0a0a0a0a,
-        payload: { route: [0x0b0b0b0b, 0x0c0c0c0c] },
-      }),
-      "Fr_Balise",
-    );
-    // route = [B, C] -> uniquement B-C ; extrémités jamais reliées (sens ambigu).
-    expect(edges).toHaveLength(1);
-    expect(edges[0].nodeId).toBe("!0b0b0b0b");
-    expect(edges[0].gatewayId).toBe("!0c0c0c0c");
-    expect(
-      edges.some((e) => e.gatewayId === "!f669cf14" || e.gatewayId === "!0a0a0a0a"),
-    ).toBe(false);
-  });
-
-  it("ignore un nœud broadcast dans la route (saut non tracé)", () => {
-    const edges = jsonMeshEdges(
+describe("parseMessage — Traceroute", () => {
+  it("réponse (want_response=false) : segments aller, SNR null (barème JSON non fiable)", () => {
+    const parsed = parseMessage(
+      topic("Fr_Balise"),
       raw({
         type: "traceroute",
         to: 0x0a0a0a0a,
         want_response: false,
-        payload: { route: [0xffffffff] },
-      } as Partial<RawMeshtasticPacket>),
-      "Fr_Balise",
-    );
-    // aller = [origine, broadcast, dest] : les 2 sauts touchant broadcast sont ignorés.
-    expect(edges).toEqual([]);
-  });
-
-  it("renvoie [] si `route` est absente", () => {
-    expect(
-      jsonMeshEdges(raw({ type: "traceroute", to: 0x0a0a0a0a, payload: {} }), "Fr_Balise"),
-    ).toEqual([]);
-  });
-
-  it("réponse sans `to` : retombe sur `from` comme extrémité", () => {
-    const edges = jsonMeshEdges(
-      raw({
-        type: "traceroute",
-        want_response: false,
         payload: { route: [0x0b0b0b0b] },
       } as Partial<RawMeshtasticPacket>),
-      "Fr_Balise",
+      CHANNELS,
     );
-    // aller = [from, relay, from] : les 2 sauts relient from et le relais.
-    expect(edges).toHaveLength(2);
-    expect(edges.map((e) => e.gatewayId).sort()).toEqual(["!0b0b0b0b", "!f669cf14"]);
+    const t = parsed?.traceroute;
+    expect(t?.sourceNode).toBe("!0a0a0a0a");
+    expect(t?.targetNode).toBe("!f669cf14");
+    const fwd = (t?.segments ?? []).filter((s) => s.direction === "forward");
+    expect(fwd.map((s) => [s.fromNode, s.toNode, s.snr])).toEqual([
+      ["!0a0a0a0a", "!0b0b0b0b", null],
+      ["!0b0b0b0b", "!f669cf14", null],
+    ]);
+  });
+
+  it("sens indéterminé (pas de want_response) -> pas de traceroute", () => {
+    const parsed = parseMessage(
+      topic("Fr_Balise"),
+      raw({ type: "traceroute", to: 0x0a0a0a0a, payload: { route: [0x0b0b0b0b] } }),
+      CHANNELS,
+    );
+    expect(parsed?.traceroute).toBeUndefined();
   });
 });

@@ -20,12 +20,10 @@ export default function MapView({
   const [role, setRole] = useState("");
   const [sinceH, setSinceH] = useState(0); // 0 = tous
   const [hopFilter, setHopFilter] = useState<HopFilter>("all");
-  const [linksEnabled, setLinksEnabled] = useState(false);
-  const [linksSinceH, setLinksSinceH] = useState(24);
   const [legendOpen, setLegendOpen] = useState(true);
   const filters = useMemo(
-    () => ({ search, role, sinceH, hopFilter, linksEnabled, linksSinceH }),
-    [search, role, sinceH, hopFilter, linksEnabled, linksSinceH],
+    () => ({ search, role, sinceH, hopFilter }),
+    [search, role, sinceH, hopFilter],
   );
 
   const { roleOptions } = useMapController({
@@ -51,14 +49,10 @@ export default function MapView({
         roleOptions={roleOptions}
         sinceH={sinceH}
         hopFilter={hopFilter}
-        linksEnabled={linksEnabled}
-        linksSinceH={linksSinceH}
         onSearchChange={setSearch}
         onRoleChange={setRole}
         onSinceHChange={setSinceH}
         onHopFilterChange={setHopFilter}
-        onLinksEnabledChange={setLinksEnabled}
-        onLinksSinceHChange={setLinksSinceH}
       />
     </div>
   );

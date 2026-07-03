@@ -8,33 +8,33 @@ function buf(obj: unknown): Buffer {
   return Buffer.from(JSON.stringify(obj));
 }
 
-// parseMqttPacket : aiguillage par topic + normalisation en tableau (1 message
-// -> 0, 1 ou N trames). NeighborInfo/Traceroute produisent base + arêtes.
+// parseMqttPacket : aiguillage par topic -> une trame (ou null). NeighborInfo/
+// Traceroute attachent leurs données diagnostiques à la trame de base.
 describe("parseMqttPacket", () => {
-  it("renvoie [] pour un topic non géré", () => {
-    expect(parseMqttPacket("msh/EU_868/2/other/x", Buffer.from(""), CHANNELS)).toEqual([]);
+  it("renvoie null pour un topic non géré", () => {
+    expect(parseMqttPacket("msh/EU_868/2/other/x", Buffer.from(""), CHANNELS)).toBeNull();
   });
 
-  it("JSON simple -> une seule trame (résultat unique enveloppé en tableau)", () => {
+  it("JSON simple -> une trame", () => {
     const out = parseMqttPacket(
       JSON_TOPIC,
       buf({ from: 1, sender: "!aabbccdd", type: "position" }),
       CHANNELS,
     );
-    expect(out).toHaveLength(1);
-    expect(out[0].packetType).toBe("position");
+    expect(out?.packetType).toBe("position");
   });
 
-  it("JSON sur canal privé -> []", () => {
-    const out = parseMqttPacket(
-      "msh/EU_868/2/json/Secret/!aabbccdd",
-      buf({ from: 1, sender: "!aabbccdd", type: "position" }),
-      CHANNELS,
-    );
-    expect(out).toEqual([]);
+  it("JSON sur canal privé -> null", () => {
+    expect(
+      parseMqttPacket(
+        "msh/EU_868/2/json/Secret/!aabbccdd",
+        buf({ from: 1, sender: "!aabbccdd", type: "position" }),
+        CHANNELS,
+      ),
+    ).toBeNull();
   });
 
-  it("JSON NeighborInfo -> trame de base + arête(s)", () => {
+  it("JSON NeighborInfo : voisins attachés à la trame", () => {
     const out = parseMqttPacket(
       JSON_TOPIC,
       buf({
@@ -45,22 +45,19 @@ describe("parseMqttPacket", () => {
       }),
       CHANNELS,
     );
-    expect(out).toHaveLength(2);
-    expect(out[0].packetType).toBe("neighborinfo");
-    expect(out[0].edgeOnly).toBeFalsy();
-    expect(out[1].packetType).toBe("neighbor");
-    expect(out[1].edgeOnly).toBe(true);
+    expect(out?.packetType).toBe("neighborinfo");
+    expect(out?.neighbors).toEqual([{ neighborId: "!11111111", snr: 5 }]);
   });
 
-  it("branche /map/ : report invalide -> []", () => {
+  it("branche /map/ : report invalide -> null", () => {
     expect(
       parseMqttPacket("msh/EU_868/2/map/Fr_Balise/!gw", Buffer.alloc(0), CHANNELS),
-    ).toEqual([]);
+    ).toBeNull();
   });
 
-  it("branche /e/ : envelope indécodable -> []", () => {
+  it("branche /e/ : envelope indécodable -> null", () => {
     expect(
       parseMqttPacket("msh/EU_868/2/e/Fr_Balise/!gw", Buffer.alloc(0), CHANNELS),
-    ).toEqual([]);
+    ).toBeNull();
   });
 });

@@ -9,15 +9,6 @@ import type {
   NodeDetail,
 } from "../../types";
 
-// Un node est "gateway" (marker vert = relaie vers MQTT) s'il apparaît comme
-// gateway_id d'au moins une trame de PREMIÈRE MAIN. Les arêtes SYNTHÉTIQUES
-// reconstruites depuis NeighborInfo ('neighbor') ou Traceroute ('traceroute_hop')
-// décrivent une écoute radio, PAS un relais MQTT : sinon un T114 sans Wi-Fi qui
-// diffuse ses voisins passerait à tort en gateway. IS DISTINCT FROM = null-safe
-// (une trame au packet_type NULL reste comptée comme relais réel).
-const NON_SYNTHETIC =
-  "p.packet_type IS DISTINCT FROM 'neighbor' AND p.packet_type IS DISTINCT FROM 'traceroute_hop'";
-
 // Upsert du dernier état connu d'un node, à chaque paquet reçu.
 // COALESCE partout : un paquet sans position/batterie/nom ne doit jamais
 // écraser une valeur déjà connue. Les champs nodeinfo (long_name, hw_model...)
@@ -55,7 +46,7 @@ const UPSERT_NODE = `
     excluded     AS "excluded",
     COALESCE(
       gateway_override,
-      EXISTS (SELECT 1 FROM packets p WHERE p.gateway_id = nodes.node_id AND ${NON_SYNTHETIC})
+      EXISTS (SELECT 1 FROM packets p WHERE p.gateway_id = nodes.node_id)
     ) AS "isGateway"
 `;
 
@@ -95,7 +86,7 @@ const SELECT_NODE_UPDATE = `
     excluded     AS "excluded",
     COALESCE(
       gateway_override,
-      EXISTS (SELECT 1 FROM packets p WHERE p.gateway_id = nodes.node_id AND ${NON_SYNTHETIC})
+      EXISTS (SELECT 1 FROM packets p WHERE p.gateway_id = nodes.node_id)
     ) AS "isGateway"
   FROM nodes
   WHERE node_id = $1
@@ -178,7 +169,7 @@ const SELECT_PUBLIC_NODES = `
     n.is_mobile    AS "isMobile",
     COALESCE(
       n.gateway_override,
-      EXISTS (SELECT 1 FROM packets p WHERE p.gateway_id = n.node_id AND ${NON_SYNTHETIC})
+      EXISTS (SELECT 1 FROM packets p WHERE p.gateway_id = n.node_id)
     ) AS "isGateway",
     (SELECT p.snr FROM packets p
        WHERE p.node_id = n.node_id AND p.snr IS NOT NULL
@@ -227,7 +218,7 @@ const SELECT_NODE_BY_ID = `
     excluded     AS "excluded",
     COALESCE(
       gateway_override,
-      EXISTS (SELECT 1 FROM packets p WHERE p.gateway_id = nodes.node_id AND ${NON_SYNTHETIC})
+      EXISTS (SELECT 1 FROM packets p WHERE p.gateway_id = nodes.node_id)
     ) AS "isGateway",
     (SELECT p.snr FROM packets p
        WHERE p.node_id = nodes.node_id AND p.snr IS NOT NULL

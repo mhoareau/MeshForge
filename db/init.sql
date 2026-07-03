@@ -17,9 +17,6 @@ CREATE TABLE IF NOT EXISTS packets (
     gateway_id    TEXT,             -- relais qui a capté le paquet (ex: !gateway01)
     node_id       TEXT,             -- émetteur (NodeID, ex: !a1b2c3d4)
     packet_type   TEXT,             -- position / telemetry / nodeinfo / neighborinfo / traceroute / rangetest
-                                     --   'neighbor' / 'traceroute_hop' = arêtes SYNTHÉTIQUES
-                                     --   (lien radio direct reconstruit) : PAS un relais MQTT,
-                                     --   exclues de la détection isGateway (cf. lib/queries/nodes.ts)
     channel       TEXT,             -- nom ou index du canal (ex: Fr_Balise)
     lat           DOUBLE PRECISION,
     lon           DOUBLE PRECISION,
@@ -37,19 +34,43 @@ CREATE TABLE IF NOT EXISTS packets (
 SELECT create_hypertable('packets', 'received_at', if_not_exists => TRUE);
 
 -- ---------------------------------------------------------------------------
--- traceroute_paths — trajet LOGIQUE bout-à-bout d'un traceroute (A atteint D
--- via N sauts). Distinct des arêtes 'traceroute_hop' (sauts directs, table
--- packets) : ici on garde le couple d'extrémités pour tracer le lien logique
--- A↔D au survol (mode "Liens directs" désactivé). a_id/b_id normalisés
--- (LEAST/GREATEST) à l'insertion -> paire non-orientée.
+-- node_neighbors — voisins DIRECTS déclarés par un node (paquet NeighborInfo).
+-- Alimente le diagnostic « Voisinage réseau » de la fiche node. node_id = le
+-- reporter, neighbor_id = son voisin direct, snr = SNR de réception au reporter.
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS traceroute_paths (
+CREATE TABLE IF NOT EXISTS node_neighbors (
     received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    a_id        TEXT NOT NULL,
-    b_id        TEXT NOT NULL,
-    hops        SMALLINT
+    node_id     TEXT NOT NULL,          -- reporter
+    neighbor_id TEXT NOT NULL,          -- voisin direct
+    snr         REAL,
+    gateway_id  TEXT,                   -- passerelle qui a relayé le NeighborInfo
+    channel     TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_tracepaths_recent ON traceroute_paths (received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_neighbors_node ON node_neighbors (node_id, received_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- traceroute_segments — un SAUT d'un traceroute (RouteDiscovery). Orienté
+-- segments pour rejouer le chemin à la lettre : nœuds intermédiaires, SNR par
+-- saut, sens aller/retour. packet_id regroupe les segments d'un même traceroute ;
+-- source_node/target_node = extrémités (A→D) ; from_node/to_node = ce saut.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS traceroute_segments (
+    received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    packet_id   BIGINT,                 -- id du MeshPacket (regroupe un traceroute)
+    channel     TEXT,
+    source_node TEXT NOT NULL,          -- origine A (émetteur de la requête)
+    target_node TEXT NOT NULL,          -- destination D
+    gateway_id  TEXT,                   -- passerelle qui a relayé le paquet
+    direction   TEXT NOT NULL,          -- 'forward' (aller A→D) / 'back' (retour D→A)
+    step        SMALLINT NOT NULL,      -- index du saut dans cette direction
+    from_node   TEXT NOT NULL,          -- émetteur du saut
+    to_node     TEXT NOT NULL,          -- récepteur du saut (mesure le SNR)
+    snr         REAL,
+    raw         JSONB
+);
+CREATE INDEX IF NOT EXISTS idx_tracesegs_source ON traceroute_segments (source_node, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tracesegs_target ON traceroute_segments (target_node, received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tracesegs_packet ON traceroute_segments (packet_id);
 
 CREATE INDEX IF NOT EXISTS idx_packets_node    ON packets (node_id,     received_at DESC);
 CREATE INDEX IF NOT EXISTS idx_packets_type    ON packets (packet_type, received_at DESC);

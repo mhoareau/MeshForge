@@ -55,16 +55,38 @@ export interface ParsedPacket {
   hwModel: string | null;
   firmware: string | null;
   role: string | null;
-  // Arête synthétique reconstruite (NeighborInfo/Traceroute) : "gateway a entendu
-  // node" en direct. Le worker l'INSÈRE dans packets mais n'upsert pas de node
-  // (l'émetteur d'une arête ne relaie pas forcément vers MQTT). Absent/false sur
-  // les trames captées normalement.
-  edgeOnly?: boolean;
-  // Traceroute (réponse complète uniquement) : extrémités logiques du trajet
-  // A↔D et nombre de sauts. Porté par la trame de base 'traceroute' ; le worker
-  // l'enregistre dans traceroute_paths (pour tracer le lien logique A↔D au survol).
-  pathEndpoints?: { aId: string; bId: string; hops: number };
+  // Voisins DIRECTS déclarés par ce node (paquet NeighborInfo). Le worker les
+  // enregistre dans `node_neighbors` (diagnostic « Voisinage réseau » de la
+  // fiche node). Absent sur les autres types de paquets.
+  neighbors?: NeighborReport[];
+  // Traceroute décodé (RouteDiscovery) : chemin bout-à-bout + segments par saut.
+  // Le worker les enregistre dans `traceroute_segments`. Absent sinon.
+  traceroute?: TracerouteInfo;
   raw: RawMeshtasticPacket;
+}
+
+// Un voisin direct rapporté par un NeighborInfo (SNR de réception au reporter).
+export interface NeighborReport {
+  neighborId: string;
+  snr: number | null;
+}
+
+// Un saut d'un traceroute : `direction` = aller (forward) / retour (back),
+// `step` = index du saut dans cette direction, SNR mesuré au récepteur `toNode`.
+export interface TracerouteSegment {
+  direction: "forward" | "back";
+  step: number;
+  fromNode: string;
+  toNode: string;
+  snr: number | null;
+}
+
+// Traceroute complet reconstruit : extrémités logiques (A atteint D) + segments.
+export interface TracerouteInfo {
+  sourceNode: string; // origine A (émetteur de la requête)
+  targetNode: string; // destination D
+  packetId: number | null; // id du MeshPacket (regroupe les segments)
+  segments: TracerouteSegment[];
 }
 
 // ---------------------------------------------------------------------------
@@ -118,27 +140,40 @@ export interface Observation {
   snr: number | null;
 }
 
-// Lien radio DIRECT (hop 0) agrégé sur une fenêtre (API /api/links).
-// Non-orienté : la paire {aId, bId} combine les deux sens. snr = MÉDIANE des SNR
-// des paquets directs de la fenêtre (null si aucun SNR, ex: traceroute JSON).
-// packets = nb de paquets RÉELS échangés (les arêtes synthétiques NeighborInfo/
-// Traceroute révèlent le lien mais ne comptent pas comme échange). Positions
-// résolues côté client (mêmes marqueurs -> respecte le floutage des mobiles).
-export interface DirectLink {
-  aId: string;
-  bId: string;
+// ---------------------------------------------------------------------------
+// Diagnostic « Voisinage réseau » de la fiche node (/node/[id]).
+// ---------------------------------------------------------------------------
+
+// Un voisin DIRECT d'un node (issu de ses paquets NeighborInfo), avec position
+// pour la mini-carte. snr = dernier SNR rapporté ; lat/lon null -> non tracé.
+export interface NodeNeighbor {
+  nodeId: string;
+  name: string | null;
   snr: number | null;
-  rssi: number | null; // médiane RSSI, critère secondaire couleur (Meshtastic)
-  packets: number;
+  lat: number | null;
+  lon: number | null;
+  lastSeen: string | null; // ISO 8601 — dernier NeighborInfo le mentionnant
 }
 
-// Trajet LOGIQUE bout-à-bout d'un traceroute (A atteint D via `hops` sauts).
-// N'est PAS un lien radio direct : tracé en pointillé au survol de A ou D quand
-// "Liens directs" est désactivé. Positions résolues côté client.
-export interface TraceroutePath {
-  aId: string;
-  bId: string;
-  hops: number | null;
+// Un traceroute complet impliquant le node consulté : chemin ordonné par saut,
+// dans chaque sens, avec le SNR par saut (pour colorer + flécher au survol).
+export interface NodeTraceroute {
+  sourceNode: string;
+  targetNode: string;
+  otherNode: string; // l'extrémité qui n'est PAS le node consulté
+  receivedAt: string; // ISO 8601
+  hops: TracerouteHop[];
+}
+
+// Un saut affichable : émetteur -> récepteur, SNR, sens.
+export interface TracerouteHop {
+  direction: "forward" | "back";
+  step: number;
+  fromNode: string;
+  fromName: string | null;
+  toNode: string;
+  toName: string | null;
+  snr: number | null;
 }
 
 // Page détail node — point de la série journalière (courbes 30j).
