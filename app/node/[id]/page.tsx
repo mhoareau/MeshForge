@@ -4,6 +4,7 @@ import Link from "next/link";
 import SiteHeader from "@/components/SiteHeader";
 import NodeCharts from "@/components/NodeCharts";
 import NodeNeighborhood from "@/components/NodeNeighborhood";
+import NodeLinksTables from "@/components/NodeLinksTables";
 import { isAdmin } from "@/lib/admin";
 import { isSameOrigin } from "@/lib/security";
 import { snapToGrid } from "@/lib/privacy";
@@ -62,8 +63,6 @@ const fmt = (v: string | number | null, suffix = ""): string =>
   v === null ? "—" : `${v}${suffix}`;
 const date = (iso: string | null): string =>
   iso ? new Date(iso).toLocaleString("fr-FR") : "—";
-const hopLabel = (h: number | null): string =>
-  h === 0 ? "direct" : h === null ? "—" : `${h} hop${h > 1 ? "s" : ""}`;
 
 async function requireAdminMutation(returnTo: string) {
   if (!(await isAdmin())) redirect("/admin/login");
@@ -86,7 +85,7 @@ export default async function NodePage({
     await Promise.all([
       getNodeHistory(nodeId),
       getNodeGateways(nodeId, node.lat, node.lon),
-      getNodeHeardNodes(nodeId),
+      getNodeHeardNodes(nodeId, node.lat, node.lon),
       getNodeDeviceMetrics(nodeId),
       getNodeMapLinks(nodeId),
       getNodeTraceroutes(nodeId),
@@ -188,84 +187,11 @@ export default async function NodePage({
 
         <section className="mt-8">
           <SectionTitle
-            title="Signal vers les gateways"
+            title="Liens radio"
             meta="(30 j)"
-            desc="Les passerelles MQTT qui ont capté ce nœud : qualité du lien (SNR), nombre de sauts et distance."
+            desc="Qui a capté ce nœud (gateways) et ce que ce nœud a capté. Cliquez sur les en-têtes pour trier."
           />
-          {gateways.length === 0 ? (
-            <p className="text-sm text-zinc-400">
-              Aucun gateway ne l&apos;a entendu sur 30 j.
-            </p>
-          ) : (
-            <ul className="divide-y divide-black/5 rounded-lg border border-black/10 dark:divide-white/10 dark:border-white/15">
-              {gateways.map((g) => (
-                <li
-                  key={g.gatewayId}
-                  className="flex flex-col gap-1 px-4 py-2 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4"
-                >
-                  <span className="font-medium">{g.gatewayName ?? g.gatewayId}</span>
-                  <span className="flex flex-wrap gap-x-4 gap-y-0.5 font-mono text-zinc-600 dark:text-zinc-300">
-                    <span>{fmt(g.snr, " dB")}</span>
-                    <span className={g.bestHop === 0 ? "text-emerald-600" : ""}>
-                      {hopLabel(g.bestHop)}
-                    </span>
-                    {g.distanceKm != null && (
-                      <span
-                        className={g.bestHop === 0 ? "text-emerald-600" : "text-zinc-400"}
-                      >
-                        {g.distanceKm} km
-                      </span>
-                    )}
-                    <span className="text-zinc-400">{g.packets} pqts</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className="mt-8">
-          <SectionTitle
-            title="Nœuds entendus par ce nœud"
-            meta="(30 j)"
-            desc="Les nœuds que ce nœud a reçus (il agit alors en récepteur), en direct ou via relais."
-          />
-          {heardNodes.length === 0 ? (
-            <p className="text-sm text-zinc-400">
-              Ce nœud n&apos;a relayé aucun autre nœud sur 30 j.
-            </p>
-          ) : (
-            <ul className="divide-y divide-black/5 rounded-lg border border-black/10 dark:divide-white/10 dark:border-white/15">
-              {heardNodes.map((h) => (
-                <li
-                  key={h.nodeId}
-                  className="flex flex-col gap-1 px-4 py-2 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4"
-                >
-                  <span className="flex flex-wrap items-center gap-2">
-                    <Link
-                      href={`/node/${encodeURIComponent(h.nodeId)}`}
-                      className="font-medium hover:underline"
-                    >
-                      {h.nodeName ?? h.nodeId}
-                    </Link>
-                    {!h.hasPosition && (
-                      <span className="rounded bg-zinc-500/15 px-1.5 py-0.5 text-xs text-zinc-500">
-                        sans position
-                      </span>
-                    )}
-                  </span>
-                  <span className="flex flex-wrap gap-x-4 gap-y-0.5 font-mono text-zinc-600 dark:text-zinc-300">
-                    <span>{fmt(h.snr, " dB")}</span>
-                    <span className={h.bestHop === 0 ? "text-emerald-600" : ""}>
-                      {hopLabel(h.bestHop)}
-                    </span>
-                    <span className="text-zinc-400">{h.packets} pqts</span>
-                    <span className="text-zinc-400">{date(h.lastHeard)}</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <NodeLinksTables gateways={gateways} heardNodes={heardNodes} />
         </section>
 
         <section className="mt-8">

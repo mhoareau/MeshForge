@@ -217,6 +217,7 @@ export interface NodeGatewayLink {
   bestHop: number | null; // 0 = lien radio direct
   packets: number;
   distanceKm: number | null; // distance node ↔ gateway (null si position inconnue)
+  lastHeard: string; // ISO 8601 — dernier paquet capté par ce gateway
 }
 
 // Node entendu par le node sujet (qui agit comme relais/gateway). Miroir de
@@ -229,6 +230,7 @@ export interface NodeHeardLink {
   bestHop: number | null; // 0 = lien radio direct
   packets: number;
   lastHeard: string; // ISO 8601 — dernier paquet capté de ce node
+  distanceKm: number | null; // distance node sujet ↔ node entendu (null si position inconnue)
   hasPosition: boolean;
 }
 
