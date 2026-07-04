@@ -111,8 +111,8 @@ export function addNeighborhoodSourcesAndLayers(map: maplibregl.Map) {
     },
     paint: {
       "text-color": ["get", "color"],
-      "text-halo-color": "#111827",
-      "text-halo-width": 0.8,
+      "text-halo-color": "#262C2E",
+      "text-halo-width": 0.1,
       "text-opacity": ["get", "opacity"],
     },
   });
