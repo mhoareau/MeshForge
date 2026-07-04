@@ -175,6 +175,13 @@ describe("traceAnimation", () => {
     const firstDone = buildTraceAnimationFrame(trace, TRACE_SEGMENT_MS + TRACE_SEGMENT_MS / 2);
     expect(firstDone.lines.features).toHaveLength(2);
     expect(firstDone.halo.features).toHaveLength(2);
+    expect(firstDone.arrows.features.length).toBeGreaterThan(0);
+    expect(firstDone.arrows.features[0].properties).toEqual(
+      expect.objectContaining({
+        color: "#00ff00",
+        rotate: expect.any(Number),
+      }),
+    );
     expect(firstDone.labels.features[0].properties).toMatchObject({
       label: "↗ Aller 1 · 4 dB",
       prefix: "↗ Aller 1",
