@@ -67,6 +67,15 @@ export function hoverCard(p: Record<string, unknown>): HTMLElement {
   title.textContent = longName || shortName || nodeId;
   el.appendChild(title);
 
+  // ID sous le titre, sauf si le node sans nom l'affiche déjà en titre.
+  if (nodeId && nodeId !== title.textContent) {
+    const id = document.createElement("div");
+    id.style.color = "#666";
+    id.style.fontFamily = "ui-monospace, monospace";
+    id.textContent = nodeId;
+    el.appendChild(id);
+  }
+
   const seen = document.createElement("div");
   seen.style.color = "#666";
   seen.textContent = lastSeen

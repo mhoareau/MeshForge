@@ -241,6 +241,7 @@ export default function NodesTable({
                     {n.longName ?? n.shortName ?? n.nodeId}
                   </div>
                   <div className="mt-0.5 break-all font-mono text-xs text-zinc-500">
+                    {n.longName && n.shortName ? `${n.shortName} · ` : ""}
                     {n.nodeId}
                   </div>
                 </div>
@@ -335,6 +336,7 @@ export default function NodesTable({
                       </span>
                     )}
                     <div className="font-mono text-xs text-zinc-500">
+                      {n.longName && n.shortName ? `${n.shortName} · ` : ""}
                       {n.nodeId}
                     </div>
                   </td>
