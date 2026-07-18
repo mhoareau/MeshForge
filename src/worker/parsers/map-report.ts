@@ -1,6 +1,7 @@
 import protobuf from "protobufjs";
 import type { ParsedPacket, RawMeshtasticPacket } from "../../../types";
 import { deviceRoleName, hardwareModelName } from "../meshtastic/enums";
+import { decodePosition } from "./parser-utils";
 
 const MAP_REPORT_PORTNUM = 73;
 
@@ -133,10 +134,9 @@ export function parseMapReport(
 
   const report = MapReport.toObject(MapReport.decode(payload)) as DecodedMapReport;
   const canShareLocation = report.has_opted_report_location === true;
-  const latRaw = numOrNull(report.latitude_i);
-  const lonRaw = numOrNull(report.longitude_i);
-  const lat = canShareLocation && latRaw !== null ? latRaw / 1e7 : null;
-  const lon = canShareLocation && lonRaw !== null ? lonRaw / 1e7 : null;
+  const position = canShareLocation
+    ? decodePosition(report.latitude_i, report.longitude_i)
+    : { lat: null, lon: null };
 
   const raw: RawMeshtasticPacket = {
     source: "map_report",
@@ -171,8 +171,8 @@ export function parseMapReport(
     nodeId: toNodeId(packet.from),
     packetType: "map_report",
     channel,
-    lat,
-    lon,
+    lat: position.lat,
+    lon: position.lon,
     altitude: canShareLocation ? numOrNull(report.altitude) : null,
     rssi: numOrNull(packet.rx_rssi),
     snr: numOrNull(packet.rx_snr),

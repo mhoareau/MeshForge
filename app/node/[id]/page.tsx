@@ -24,6 +24,7 @@ import {
 } from "@/lib/queries/node-detail";
 import { getNodeMapLinks } from "@/lib/queries/node-map-links";
 import { getNodeTraceroutes } from "@/lib/queries/traceroutes";
+import { getSetting } from "@/lib/queries/settings";
 
 // Request-time : interroge la DB.
 export const dynamic = "force-dynamic";
@@ -86,14 +87,24 @@ export default async function NodePage({
   // pour le gérer/réintégrer). On bloque avant de charger les données associées.
   if (node.excluded && !admin) notFound();
 
-  const [history, gateways, heardNodes, deviceMetrics, mapLinks, traceroutes] =
-    await Promise.all([
+  const [
+    history,
+    gateways,
+    heardNodes,
+    deviceMetrics,
+    mapLinks,
+    traceroutes,
+    mapBounds,
+    mapMinZoom,
+  ] = await Promise.all([
       getNodeHistory(nodeId),
       getNodeGateways(nodeId, node.lat, node.lon),
       getNodeHeardNodes(nodeId, node.lat, node.lon),
       getNodeDeviceMetrics(nodeId),
       getNodeMapLinks(nodeId),
       getNodeTraceroutes(nodeId),
+      getSetting("map_bounds"),
+      getSetting("map_min_zoom"),
     ]);
 
   const { confirm } = await searchParams;
@@ -248,6 +259,8 @@ export default async function NodePage({
             }}
             links={mapLinks}
             traceroutes={traceroutes}
+            bounds={mapBounds}
+            minZoom={mapMinZoom}
           />
         </section>
 

@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv } from "crypto";
 import protobuf from "protobufjs";
 import type { ParsedPacket, RawMeshtasticPacket } from "../../../types";
 import { deviceRoleName, hardwareModelName } from "../meshtastic/enums";
-import { decodeTraceSnr } from "./parser-utils";
+import { decodePosition, decodeTraceSnr } from "./parser-utils";
 import { neighborReports } from "./neighbor-info";
 import { tracerouteInfo } from "./traceroute";
 import { matchingTextMarker } from "./text-message";
@@ -429,8 +429,10 @@ function packetFromPosition(
   raw: RawMeshtasticPacket,
   position: DecodedPosition,
 ): ParsedPacket {
-  const latRaw = numOrNull(position.latitude_i);
-  const lonRaw = numOrNull(position.longitude_i);
+  const decodedPosition = decodePosition(
+    position.latitude_i,
+    position.longitude_i,
+  );
   return basePacket(packet, envelope, channel, {
     ...raw,
     type: "position",
@@ -442,8 +444,8 @@ function packetFromPosition(
     },
   }, {
     packetType: "position",
-    lat: latRaw !== null ? latRaw / 1e7 : null,
-    lon: lonRaw !== null ? lonRaw / 1e7 : null,
+    lat: decodedPosition.lat,
+    lon: decodedPosition.lon,
     altitude: numOrNull(position.altitude),
   });
 }

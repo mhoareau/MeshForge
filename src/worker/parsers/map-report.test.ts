@@ -149,4 +149,15 @@ describe("parseMapReport", () => {
     const payload = parsed?.raw.payload;
     expect(typeof payload === "object" && payload !== null ? payload.latitude_i : undefined).toBeUndefined();
   });
+
+  it("traite la position sentinelle (0,0) comme absente", () => {
+    const parsed = parseMapReport(
+      TOPIC,
+      packet({ mapReport: { latitude_i: 0, longitude_i: 0, altitude: 0 } }),
+      CHANNELS,
+    );
+
+    expect(parsed?.lat).toBeNull();
+    expect(parsed?.lon).toBeNull();
+  });
 });

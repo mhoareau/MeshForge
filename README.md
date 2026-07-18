@@ -248,6 +248,17 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml \
 
   Les politiques tournent en arrière-plan : la migration ne compresse ni ne
   supprime immédiatement les anciennes données.
+- Après le déploiement du garde-fou sur les positions `(0,0)`, réparer les nodes
+  déjà affectés depuis leur dernier paquet valide connu :
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+  exec -T timescaledb psql -v ON_ERROR_STOP=1 -U meshforge -d meshforge \
+  < db/migrations/002_repair_invalid_node_positions.sql
+```
+
+  Cette migration est idempotente. Si aucun ancien paquet valide n'existe encore,
+  la position invalide est remise à `NULL` plutôt que laissée à `(0,0)`.
 - `DB_PASSWORD` est passé brut à Postgres, app, worker et broker. Les caractères
   spéciaux sont acceptés.
 - Si on change `DB_PASSWORD` sur une DB existante, aligner aussi Postgres :

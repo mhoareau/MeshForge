@@ -10,9 +10,9 @@ import type {
 } from "../../types";
 
 // Upsert du dernier état connu d'un node, à chaque paquet reçu.
-// COALESCE partout : un paquet sans position/batterie/nom ne doit jamais
-// écraser une valeur déjà connue. Les champs nodeinfo (long_name, hw_model...)
-// arrivent à null sur les autres types de paquets -> COALESCE les préserve.
+// Un paquet sans position/batterie/nom ne doit jamais écraser une valeur déjà
+// connue. La position est remplacée comme un couple lat/lon atomique ; les
+// autres champs optionnels sont préservés par COALESCE.
 // RGPD : si le node est `anonymized`, les noms restent NULL même si un nouveau
 // nodeinfo les renvoie.
 // RETURNING : on récupère l'état FUSIONNÉ pour décider du pg_notify temps réel.
@@ -29,8 +29,18 @@ const UPSERT_NODE = `
     hw_model     = COALESCE(EXCLUDED.hw_model,     nodes.hw_model),
     firmware     = COALESCE(EXCLUDED.firmware,     nodes.firmware),
     role         = COALESCE(EXCLUDED.role,         nodes.role),
-    last_lat     = COALESCE(EXCLUDED.last_lat,     nodes.last_lat),
-    last_lon     = COALESCE(EXCLUDED.last_lon,     nodes.last_lon),
+    last_lat     = CASE
+                     WHEN EXCLUDED.last_lat IS NOT NULL
+                      AND EXCLUDED.last_lon IS NOT NULL
+                     THEN EXCLUDED.last_lat
+                     ELSE nodes.last_lat
+                   END,
+    last_lon     = CASE
+                     WHEN EXCLUDED.last_lat IS NOT NULL
+                      AND EXCLUDED.last_lon IS NOT NULL
+                     THEN EXCLUDED.last_lon
+                     ELSE nodes.last_lon
+                   END,
     last_battery = COALESCE(EXCLUDED.last_battery, nodes.last_battery),
     last_seen    = EXCLUDED.last_seen
   RETURNING
