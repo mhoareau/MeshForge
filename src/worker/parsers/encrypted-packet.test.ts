@@ -163,6 +163,26 @@ describe("parseEncryptedPacket", () => {
     expect(parsed?.hopCount).toBe(0);
   });
 
+  it("traite une POSITION_APP protobuf (0,0) comme absente", () => {
+    const payload = Position.encode(
+      Position.create({ latitude_i: 0, longitude_i: 0, altitude: 0 }),
+    ).finish();
+
+    const parsed = single(parseEncryptedPacket(
+      TOPIC,
+      envelope(3, payload),
+      CHANNELS,
+      parseChannelKeys("Fr_Balise:AQ=="),
+    ));
+
+    expect(parsed?.lat).toBeNull();
+    expect(parsed?.lon).toBeNull();
+    expect(parsed?.raw.payload).toMatchObject({
+      latitude_i: 0,
+      longitude_i: 0,
+    });
+  });
+
   it("décode un /e/ NODEINFO_APP chiffré", () => {
     const payload = User.encode(
       User.create({

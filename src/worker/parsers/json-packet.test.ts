@@ -85,6 +85,16 @@ describe("parseMessage — payload position", () => {
     expect(parsed?.lat).toBeNull();
     expect(parsed?.lon).toBeNull();
   });
+
+  it("traite la position sentinelle (0,0) comme absente", () => {
+    const parsed = parseMessage(
+      topic("Fr_Balise"),
+      raw({ payload: { latitude_i: 0, longitude_i: 0, altitude: 0 } }),
+      CHANNELS,
+    );
+    expect(parsed?.lat).toBeNull();
+    expect(parsed?.lon).toBeNull();
+  });
 });
 
 describe("parseMessage — filtrage texte", () => {

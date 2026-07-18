@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { NodeMapLink, NodeTraceroute } from "@/types";
+import type { MapBounds, NodeMapLink, NodeTraceroute } from "@/types";
 import { pillElement } from "@/components/map/map-dom";
 import { resolvePillSpread } from "@/components/map/pill-spread";
 import {
@@ -46,9 +46,17 @@ type Props = {
   };
   links: NodeMapLink[];
   traceroutes: NodeTraceroute[];
+  bounds: MapBounds | null;
+  minZoom: number;
 };
 
-export default function NodeNeighborhood({ node, links, traceroutes }: Props) {
+export default function NodeNeighborhood({
+  node,
+  links,
+  traceroutes,
+  bounds,
+  minZoom,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<Record<string, maplibregl.Marker>>({});
@@ -272,7 +280,7 @@ export default function NodeNeighborhood({ node, links, traceroutes }: Props) {
     if (points.length <= 1) {
       map.jumpTo({
         center: [node.lon as number, node.lat as number],
-        zoom: 11,
+        zoom: Math.max(11, minZoom),
       });
       return;
     }
@@ -280,7 +288,11 @@ export default function NodeNeighborhood({ node, links, traceroutes }: Props) {
     for (const f of points) {
       b.extend((f.geometry as GeoJSON.Point).coordinates as [number, number]);
     }
-    map.fitBounds(b, { padding: 48, maxZoom: 14, duration: 0 });
+    map.fitBounds(b, {
+      padding: 48,
+      maxZoom: Math.max(14, minZoom),
+      duration: 0,
+    });
   };
 
   useEffect(() => {
@@ -289,7 +301,14 @@ export default function NodeNeighborhood({ node, links, traceroutes }: Props) {
       container: containerRef.current,
       style: NEIGHBORHOOD_MAP_STYLE,
       center: [node.lon as number, node.lat as number],
-      zoom: 11,
+      zoom: Math.max(11, minZoom),
+      minZoom,
+      maxBounds: bounds
+        ? [
+            [bounds.west, bounds.south],
+            [bounds.east, bounds.north],
+          ]
+        : undefined,
       attributionControl: false,
     });
     mapRef.current = map;

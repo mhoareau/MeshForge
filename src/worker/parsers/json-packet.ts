@@ -5,6 +5,7 @@ import { hardwareModelName, deviceRoleName } from "../meshtastic/enums";
 import { neighborReports } from "./neighbor-info";
 import { tracerouteInfo } from "./traceroute";
 import { matchingTextMarker } from "./text-message";
+import { decodePosition } from "./parser-utils";
 
 // NodeNum entier -> NodeID hex Meshtastic. Ex: 4134129428 -> "!f669cf14".
 // `>>> 0` force l'interprétation non signée (NodeNum va jusqu'à 0xFFFFFFFF).
@@ -47,14 +48,15 @@ export function parseMessage(
 
   const payload = typeof raw.payload === "object" && raw.payload !== null ? raw.payload : {};
   const isNodeInfo = raw.type === "nodeinfo";
+  const position = decodePosition(payload.latitude_i, payload.longitude_i);
 
   return {
     gatewayId: strOrNull(raw.sender),
     nodeId: toNodeId(raw.from),
     packetType: strOrNull(raw.type),
     channel,
-    lat: numOrNull(payload.latitude_i) !== null ? payload.latitude_i! / 1e7 : null,
-    lon: numOrNull(payload.longitude_i) !== null ? payload.longitude_i! / 1e7 : null,
+    lat: position.lat,
+    lon: position.lon,
     altitude: numOrNull(payload.altitude),
     rssi: numOrNull(raw.rssi),
     snr: numOrNull(raw.snr),

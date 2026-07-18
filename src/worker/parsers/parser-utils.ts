@@ -20,6 +20,23 @@ export function numOrNull(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
+export function decodePosition(
+  latitudeI: unknown,
+  longitudeI: unknown,
+): { lat: number | null; lon: number | null } {
+  const latRaw = numOrNull(latitudeI);
+  const lonRaw = numOrNull(longitudeI);
+  if (latRaw === null || lonRaw === null || (latRaw === 0 && lonRaw === 0)) {
+    return { lat: null, lon: null };
+  }
+  const lat = latRaw / 1e7;
+  const lon = lonRaw / 1e7;
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+    return { lat: null, lon: null };
+  }
+  return { lat, lon };
+}
+
 export function isRealNode(num: number): boolean {
   return Number.isFinite(num) && num !== 0 && (num >>> 0) !== BROADCAST_NUM;
 }
