@@ -177,7 +177,6 @@ describe("parseLegalInfo / requireLegalInfo — mentions légales", () => {
 
 const MQTT_FALLBACK = {
   mobileBroker: "mqtt.la-forge-numerique.com:1883",
-  webBroker: "91.134.54.125:1883",
   rootTopic: "msh/EU_868",
   encryptionEnabled: true,
   jsonOutputEnabled: true,
@@ -191,7 +190,7 @@ describe("parseMqttOnboarding / requireMqttOnboarding", () => {
       parseMqttOnboarding(
         {
           mobileBroker: " mqtt.example.com:1883 ",
-          webBroker: " 192.0.2.10:1883 ",
+          webBroker: "ancienne-valeur-ignorée",
           rootTopic: " msh/EU_868 ",
           encryptionEnabled: true,
           jsonOutputEnabled: true,
@@ -203,7 +202,6 @@ describe("parseMqttOnboarding / requireMqttOnboarding", () => {
       ),
     ).toEqual({
       mobileBroker: "mqtt.example.com:1883",
-      webBroker: "192.0.2.10:1883",
       rootTopic: "msh/EU_868",
       encryptionEnabled: true,
       jsonOutputEnabled: true,

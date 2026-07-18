@@ -50,6 +50,13 @@ export function isValidEmail(s: string): boolean {
   return s.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 }
 
+export function normalizeContributorEmail(s: string): string | null {
+  const email = s.trim();
+  if (!email) return null;
+  if (!isValidEmail(email)) throw new Error("Email invalide.");
+  return email;
+}
+
 export function isValidNodeName(s: string): boolean {
   return s.trim().length >= 2 && s.trim().length <= 64;
 }
@@ -160,6 +167,29 @@ export async function insertContributor(
   ]);
 }
 
+export interface BulkContributorInsert {
+  username: string;
+  passwordHash: string;
+}
+
+// Une seule instruction SQL garantit l'atomicité du lot : si un username entre
+// en collision avec l'unique index, PostgreSQL n'insère aucun des comptes.
+const INSERT_CONTRIBUTORS_BULK = `
+  INSERT INTO contributors (username, password, node_name, role)
+  SELECT username, password_hash, username, 'USER'
+  FROM UNNEST($1::text[], $2::text[]) AS input(username, password_hash)
+`;
+
+export async function insertContributorsBulk(
+  contributors: BulkContributorInsert[],
+): Promise<void> {
+  if (contributors.length === 0) return;
+  await pool.query(INSERT_CONTRIBUTORS_BULK, [
+    contributors.map(({ username }) => username),
+    contributors.map(({ passwordHash }) => passwordHash),
+  ]);
+}
+
 const SELECT_ADMIN_PAGE = `
   SELECT
     id,
@@ -205,7 +235,7 @@ export async function getContributorsAdminPage(
 
 const UPDATE_CONTRIBUTOR_PROFILE = `
   UPDATE contributors
-  SET username = $2, node_name = $3
+  SET username = $2, node_name = $3, email = $4
   WHERE id = $1 AND role <> 'ADMIN'
 `;
 
@@ -213,11 +243,13 @@ export async function updateContributorProfile(
   id: number,
   username: string,
   nodeName: string,
+  email: string | null,
 ): Promise<boolean> {
   const { rowCount } = await pool.query(UPDATE_CONTRIBUTOR_PROFILE, [
     id,
     username,
     nodeName,
+    email,
   ]);
   return rowCount === 1;
 }

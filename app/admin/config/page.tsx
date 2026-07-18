@@ -134,7 +134,6 @@ async function saveMqttOnboarding(formData: FormData) {
   try {
     await setSetting("mqtt_onboarding", {
       mobileBroker: String(formData.get("mobileBroker") ?? ""),
-      webBroker: String(formData.get("webBroker") ?? ""),
       rootTopic: String(formData.get("rootTopic") ?? ""),
       encryptionEnabled: formData.get("encryptionEnabled") === "on",
       jsonOutputEnabled: formData.get("jsonOutputEnabled") === "on",
@@ -235,7 +234,7 @@ export default async function ConfigPage({
         )}
 
         {activeTab === "network" ? (
-        <div className="flex flex-col gap-4">
+        <div key="network" className="flex flex-col gap-4">
           <Section
             title="Canaux publics (whitelist)"
             hint="Le worker n'ingère QUE ces canaux (default-deny). Séparés par des virgules. Fr_EMCOM reste exclu de l'affichage par la privacy."
@@ -346,7 +345,7 @@ export default async function ConfigPage({
           </Section>
         </div>
         ) : activeTab === "legal" ? (
-          <div className="flex flex-col gap-4">
+          <div key="legal" className="flex flex-col gap-4">
             <Section
               title="Mentions légales"
               hint="Informations affichées sur la page publique /mentions-legales."
@@ -411,25 +410,17 @@ export default async function ConfigPage({
             </Section>
           </div>
         ) : (
-          <div className="flex flex-col gap-4">
+          <div key="mqtt" className="flex flex-col gap-4">
             <Section
               title="Onboarding MQTT"
               hint="Valeurs affichées après inscription d'un relais. Utile pour adapter MeshForge à une autre instance."
             >
               <form action={saveMqttOnboarding} className="grid gap-3">
                 <label className="text-xs text-zinc-500">
-                  Broker app mobile
+                  Adresse du broker
                   <input
                     name="mobileBroker"
                     defaultValue={mqtt.mobileBroker}
-                    className={numCls}
-                  />
-                </label>
-                <label className="text-xs text-zinc-500">
-                  Broker interface web
-                  <input
-                    name="webBroker"
-                    defaultValue={mqtt.webBroker}
                     className={numCls}
                   />
                 </label>
