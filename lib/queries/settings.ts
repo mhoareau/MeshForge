@@ -30,7 +30,6 @@ export interface LegalInfo {
 
 export interface MqttOnboarding {
   mobileBroker: string;
-  webBroker: string;
   rootTopic: string;
   encryptionEnabled: boolean;
   jsonOutputEnabled: boolean;
@@ -62,7 +61,6 @@ const DEFAULT_LEGAL_INFO: LegalInfo = {
 };
 const DEFAULT_MQTT_ONBOARDING: MqttOnboarding = {
   mobileBroker: "mqtt.la-forge-numerique.com:1883",
-  webBroker: "91.134.54.125:1883",
   rootTopic: "msh/EU_868",
   encryptionEnabled: true,
   jsonOutputEnabled: true,
@@ -226,7 +224,6 @@ function isMqttOnboarding(
   const o = raw as Record<string, unknown>;
   return (
     typeof o.mobileBroker === "string" &&
-    typeof o.webBroker === "string" &&
     typeof o.rootTopic === "string" &&
     typeof o.encryptionEnabled === "boolean" &&
     typeof o.jsonOutputEnabled === "boolean" &&
@@ -240,7 +237,6 @@ function pickMqttOnboarding(
 ): MqttOnboarding {
   return {
     mobileBroker: String(raw.mobileBroker).trim(),
-    webBroker: String(raw.webBroker).trim(),
     rootTopic: String(raw.rootTopic).trim(),
     encryptionEnabled: Boolean(raw.encryptionEnabled),
     jsonOutputEnabled: Boolean(raw.jsonOutputEnabled),
@@ -261,7 +257,7 @@ export function requireMqttOnboarding(raw: unknown): MqttOnboarding {
     throw new Error("configuration MQTT invalide : objet incomplet");
   }
   const info = pickMqttOnboarding(raw);
-  for (const field of ["mobileBroker", "webBroker", "rootTopic"] as const) {
+  for (const field of ["mobileBroker", "rootTopic"] as const) {
     if (!info[field] || info[field].length > 120) {
       throw new Error("configuration MQTT invalide : champ vide ou trop long");
     }

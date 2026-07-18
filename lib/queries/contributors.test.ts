@@ -4,6 +4,7 @@ import {
   canMutateContributor,
   isValidUsername,
   isValidEmail,
+  normalizeContributorEmail,
   isValidNodeName,
   isValidContributorPassword,
   passwordResetTokenHash,
@@ -65,6 +66,24 @@ describe("isValidEmail", () => {
     expect(isValidEmail("robin@host")).toBe(false);
     expect(isValidEmail("a b@host.fr")).toBe(false);
     expect(isValidEmail("")).toBe(false);
+  });
+});
+
+describe("normalizeContributorEmail", () => {
+  it("normalise une adresse renseignée", () => {
+    expect(normalizeContributorEmail(" robin@example.com ")).toBe(
+      "robin@example.com",
+    );
+  });
+
+  it("convertit un champ vide en null pour les comptes sans email", () => {
+    expect(normalizeContributorEmail("   ")).toBeNull();
+  });
+
+  it("refuse une adresse invalide", () => {
+    expect(() => normalizeContributorEmail("robin@host")).toThrow(
+      "Email invalide",
+    );
   });
 });
 

@@ -9,7 +9,6 @@ interface Creds {
 
 interface MqttOnboarding {
   mobileBroker: string;
-  webBroker: string;
   rootTopic: string;
   encryptionEnabled: boolean;
   jsonOutputEnabled: boolean;
@@ -45,26 +44,6 @@ function CopyValue({ label, value }: { label: string; value: string }) {
         </button>
       </div>
     </div>
-  );
-}
-
-function InlineCopy({ value }: { value: string }) {
-  const [copied, setCopied] = useState(false);
-
-  async function copy() {
-    await navigator.clipboard.writeText(value);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1400);
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={copy}
-      className="rounded border border-black/15 px-1.5 py-0.5 text-xs text-zinc-800 dark:border-white/20 dark:text-zinc-100"
-    >
-      {copied ? "copié" : value}
-    </button>
   );
 }
 
@@ -149,11 +128,6 @@ export default function RegisterForm({
             <CopyValue label="Adresse" value={onboarding.mobileBroker} />
             <CopyValue label="Sujet principal" value={onboarding.rootTopic} />
           </div>
-          <p className="text-xs text-zinc-500">
-            Si l’interface refuse l’adresse DNS ou signale une valeur trop
-            longue, utilise l’adresse IP{" "}
-            <InlineCopy value={onboarding.webBroker} />.
-          </p>
           <ul className="list-disc space-y-1 pl-5">
             <li>
               {onboarding.encryptionEnabled ? "Active" : "Désactive"}{" "}

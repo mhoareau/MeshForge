@@ -7,6 +7,7 @@ import {
   deleteContributor,
   isValidNodeName,
   isValidUsername,
+  normalizeContributorEmail,
   passwordResetTokenHash,
   setContributorActive,
   updateContributorProfile,
@@ -60,6 +61,7 @@ export async function PATCH(
     if (b.type === "profile") {
       const username = String(b.username ?? "").trim();
       const nodeName = String(b.nodeName ?? "").trim();
+      const email = normalizeContributorEmail(String(b.email ?? ""));
       if (!isValidUsername(username)) {
         return NextResponse.json(
           { error: "Username invalide : 3 à 32 caractères, lettres/chiffres/_/-." },
@@ -72,7 +74,12 @@ export async function PATCH(
           { status: 400 },
         );
       }
-      const updated = await updateContributorProfile(id, username, nodeName);
+      const updated = await updateContributorProfile(
+        id,
+        username,
+        nodeName,
+        email,
+      );
       return updated
         ? NextResponse.json({ ok: true })
         : NextResponse.json(

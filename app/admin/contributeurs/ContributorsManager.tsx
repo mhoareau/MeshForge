@@ -185,6 +185,7 @@ function EditContributorModal({
 }) {
   const [username, setUsername] = useState(contributor.username);
   const [nodeName, setNodeName] = useState(contributor.nodeName ?? "");
+  const [email, setEmail] = useState(contributor.email ?? "");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -198,6 +199,7 @@ function EditContributorModal({
           type: "profile",
           username,
           nodeName,
+          email,
         }),
       });
       returnToPage(page);
@@ -224,6 +226,16 @@ function EditContributorModal({
           <input
             value={nodeName}
             onChange={(e) => setNodeName(e.currentTarget.value)}
+            className={inputCls}
+          />
+        </label>
+        <label className="text-xs text-zinc-500">
+          Email
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.currentTarget.value)}
+            placeholder="Optionnel"
             className={inputCls}
           />
         </label>

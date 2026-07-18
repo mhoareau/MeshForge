@@ -3,6 +3,7 @@ import SiteHeader from "@/components/SiteHeader";
 import AdminNav from "@/components/AdminNav";
 import { isAdmin } from "@/lib/admin";
 import { getContributorsAdminPage } from "@/lib/queries/contributors";
+import BulkCreateButton from "./BulkCreateButton";
 import ContributorsManager from "./ContributorsManager";
 
 export const dynamic = "force-dynamic";
@@ -36,11 +37,14 @@ export default async function ContributorsPage({
       <AdminNav active="/admin/contributeurs" />
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6">
-        <div className="mb-4 flex flex-wrap items-baseline justify-between gap-3">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-xl font-semibold">Contributeurs</h2>
-          <span className="text-sm text-zinc-500">
-            {total} compte{total > 1 ? "s" : ""}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-zinc-500">
+              {total} compte{total > 1 ? "s" : ""}
+            </span>
+            <BulkCreateButton />
+          </div>
         </div>
 
         {ok && (
