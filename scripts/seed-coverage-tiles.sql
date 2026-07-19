@@ -144,6 +144,28 @@ VALUES
   (NOW(), '!cgw2', '!cov4', 'position', 'Fr_Balise', -21.0500, 55.7000, -5, 0,
    '{"id":123456789,"payload":{}}');
 
+-- ---- Redondance : ne pas confondre « union de la tuile » et « depuis un point » ----
+-- Trois sondes DISPERSÉES dans une même tuile, chacune entendue par UNE seule
+-- passerelle, mais trois passerelles différentes. L'union de la tuile vaut 3 ;
+-- pourtant aucun emplacement n'atteint plus d'un relais. La métrique doit donc
+-- afficher 1 (fragile), surtout pas 3 (résilient) — sans quoi on écarterait
+-- cette zone d'un projet d'implantation de relais alors qu'elle en a besoin.
+INSERT INTO packets (received_at, gateway_id, node_id, packet_type, channel,
+                     lat, lon, snr, hop_count, raw)
+VALUES
+  (NOW(), '!cgw1', '!cov1', 'position', 'Fr_Balise', -21.2030, 55.2510, -8, 0, '{"id":900001,"payload":{}}'),
+  (NOW(), '!cgw2', '!cov2', 'position', 'Fr_Balise', -21.2060, 55.2540, -9, 0, '{"id":900002,"payload":{}}'),
+  (NOW(), '!cgw3', '!cov3', 'position', 'Fr_Balise', -21.2090, 55.2570, -7, 0, '{"id":900003,"payload":{}}');
+
+-- Cas inverse : UNE transmission unique reçue par TROIS passerelles. Là, la
+-- redondance est réelle et doit valoir 3.
+INSERT INTO packets (received_at, gateway_id, node_id, packet_type, channel,
+                     lat, lon, snr, hop_count, raw)
+VALUES
+  (NOW(), '!cgw1', '!cov5', 'position', 'Fr_Balise', -21.3050, 55.2510, -8, 0, '{"id":900010,"payload":{}}'),
+  (NOW(), '!cgw2', '!cov5', 'position', 'Fr_Balise', -21.3050, 55.2510, -9, 0, '{"id":900010,"payload":{}}'),
+  (NOW(), '!cgw3', '!cov5', 'position', 'Fr_Balise', -21.3050, 55.2510, -7, 0, '{"id":900010,"payload":{}}');
+
 -- Contrôle rapide (à comparer avec la carte) :
 --   SELECT count(*) FROM packets WHERE node_id LIKE '!cov%' AND hop_count = 0
 --     AND gateway_id <> node_id AND lat IS NOT NULL;

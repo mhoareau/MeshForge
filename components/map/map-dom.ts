@@ -128,7 +128,9 @@ export function coverageCard(
       : `Meilleur lien (p90) : ${snrP90.toFixed(1)} dB`,
   );
   if (snrMax !== null) line(`Meilleure réception : ${snrMax.toFixed(1)} dB`, true);
-  line(`Relais joignables : ${Number(p.gateways ?? 0)}`);
+  // « depuis un même point » : la valeur est le max par transmission, pas
+  // l'union des relais de la tuile (cf. CoverageTile.gateways).
+  line(`Relais depuis un même point : ${Number(p.gateways ?? 0)}`);
   line(`Émetteurs distincts : ${Number(p.nodes ?? 0)}`);
   line(`${Number(p.samples ?? 0)} mesure(s) sur 30 j`, true);
   return el;

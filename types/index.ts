@@ -176,7 +176,13 @@ export interface CoverageTile {
   y: number;
   snrP90: number | null; // « meilleur lien atteignable », robuste aux aubaines
   snrMax: number | null; // meilleure réception observée (infobulle)
-  gateways: number; // relais DISTINCTS joignables en direct depuis la tuile
+  // Relais atteints DEPUIS UN MÊME POINT : maximum, sur les transmissions
+  // émises dans la tuile, du nombre de passerelles ayant reçu la même émission.
+  // Se lit « au moins un emplacement d'ici atteint N relais ». Ce n'est PAS
+  // l'union des relais ayant entendu quoi que ce soit dans la tuile, laquelle
+  // surestimerait la résilience d'une zone où chaque point n'atteint qu'un seul
+  // relais.
+  gateways: number;
   nodes: number; // émetteurs distincts observés dans la tuile
   // Réceptions retenues, DÉDUPLIQUÉES par (passerelle, id de paquet) : une même
   // réception republiée sur /json/ ET /e/ ne compte qu'une fois. C'est ce qui

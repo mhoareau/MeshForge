@@ -111,11 +111,10 @@ export const TILE_XY = `
 // donc une tuile entendue par 5 relais scorerait PIRE qu'une tuile entendue par
 // un seul relais proche — l'inverse de ce qu'on veut montrer.
 const AGGREGATES = `
-    percentile_cont(0.9) WITHIN GROUP (ORDER BY p.snr)::real AS "snrP90",
-    max(p.snr)::real                AS "snrMax",
-    count(DISTINCT p.gateway_id)::int AS "gateways",
-    count(DISTINCT p.node_id)::int    AS "nodes",
-    count(*)::int                     AS "samples"`;
+    percentile_cont(0.9) WITHIN GROUP (ORDER BY t.snr)::real AS "snrP90",
+    max(t.snr)::real               AS "snrMax",
+    count(DISTINCT t.node_id)::int AS "nodes",
+    count(*)::int                  AS "samples"`;
 
 // PRIVACY : opt-out RGPD sur l'émetteur. Pas de jointure sur la gateway,
 // volontairement — sa position est hors sujet (on attribue la mesure à
@@ -168,12 +167,50 @@ const buildQuery = (bounded: boolean): string => `
     )
     UNION ALL
     SELECT * FROM base WHERE pkt_id IS NULL
-  )
-  SELECT
+  ),
+  tuiles AS (
+    SELECT
 ${TILE_XY},
+      p.node_id, p.gateway_id, p.snr, p.pkt_id
+    FROM dedup p
+  ),
+  -- REDONDANCE : « depuis UN POINT de cette tuile, combien de relais
+  -- j'atteins ? » C'est une propriété d'un POINT, pas de l'union de la tuile.
+  -- Un count(DISTINCT gateway_id) à l'échelle de la tuile répondrait à une tout
+  -- autre question — « combien de relais ont entendu QUOI QUE CE SOIT ici » —
+  -- et surestimerait la résilience : trois sondes aux quatre coins, entendues
+  -- chacune par un relais différent, donneraient « 3 relais, résilient » alors
+  -- qu'aucun emplacement n'en atteint plus d'un. Pour une couche dont l'usage
+  -- est de décider où poser un relais, c'est exactement l'erreur à ne pas faire.
+  --
+  -- On compte donc par TRANSMISSION : une émission unique, depuis un point
+  -- unique, à un instant unique, reçue simultanément par N passerelles. Le
+  -- maximum sur la tuile se lit alors « au moins un emplacement d'ici atteint N
+  -- relais » — une affirmation vraie et vérifiable.
+  --
+  -- Les réceptions sans id de paquet ne peuvent pas être regroupées par
+  -- transmission (leurs received_at diffèrent d'une passerelle à l'autre, c'est
+  -- l'heure d'arrivée au broker). On se rabat pour elles sur un regroupement
+  -- par ÉMETTEUR, plus prudent que l'union et toujours calculable.
+  redondance AS (
+    SELECT tx, ty, max(gw)::int AS "gateways"
+    FROM (
+      SELECT tx, ty, count(DISTINCT gateway_id) AS gw
+      FROM tuiles
+      GROUP BY tx, ty, node_id, COALESCE(pkt_id, '')
+    ) g
+    GROUP BY tx, ty
+  ),
+  mesures AS (
+    SELECT t.tx, t.ty,
 ${AGGREGATES}
-  FROM dedup p
-  GROUP BY tx, ty
+    FROM tuiles t
+    GROUP BY t.tx, t.ty
+  )
+  SELECT m.tx, m.ty, m."snrP90", m."snrMax",
+         r."gateways", m."nodes", m."samples"
+  FROM mesures m
+  JOIN redondance r ON r.tx = m.tx AND r.ty = m.ty
 `;
 
 const SELECT_COVERAGE_TILES = buildQuery(false);
@@ -228,24 +265,25 @@ export function assertTileZoom(z: number): number {
 // s'afficherait « non exploré » alors que les paquets existent. Une clé
 // complète rend le cache auto-corrigeant, sans hook d'invalidation à câbler
 // depuis setSetting (qui créerait au passage un cycle d'import).
+// On met en cache la PROMESSE, pas la valeur résolue. /api/coverage est public,
+// force-dynamic et sans authentification : à l'expiration de l'entrée, N
+// visiteurs simultanés lanceraient chacun le balayage 30 jours (percentile plus
+// deux count(DISTINCT) sur des chunks compressés) avant que le premier ne
+// remplisse le cache, saturant le pool pendant que le reste de l'API attend
+// derrière. En stockant la promesse dès son lancement, les arrivants pendant le
+// calcul s'y raccrochent : une seule requête part.
 const TTL_MS = 600_000; // 10 min
-const cache = new Map<string, { value: CoverageResponse; at: number }>();
+const cache = new Map<string, { promesse: Promise<CoverageResponse>; at: number }>();
 
 const cacheKey = (z: number, bounds: MapBounds | null): string =>
   bounds
     ? `${z}|${bounds.west},${bounds.south},${bounds.east},${bounds.north}`
     : `${z}|open`;
 
-export async function getCoverageTiles(): Promise<CoverageResponse> {
-  // Les DEUX réglages sont lus avant la consultation du cache : ils entrent
-  // tous deux dans la clé.
-  const z = assertTileZoom(await getSetting("coverage_tile_zoom"));
-  const bounds = await getSetting("map_bounds");
-
-  const key = cacheKey(z, bounds);
-  const cached = cache.get(key);
-  if (cached && Date.now() - cached.at < TTL_MS) return cached.value;
-
+async function interrogerBase(
+  z: number,
+  bounds: MapBounds | null,
+): Promise<CoverageResponse> {
   const { rows } = bounds
     ? await pool.query<CoverageRow>(SELECT_COVERAGE_TILES_BOUNDED, [
         z,
@@ -256,11 +294,28 @@ export async function getCoverageTiles(): Promise<CoverageResponse> {
       ])
     : await pool.query<CoverageRow>(SELECT_COVERAGE_TILES, [z]);
 
-  const value: CoverageResponse = {
-    z,
-    tileCount: tileCount(z),
-    tiles: toCoverageTiles(rows),
-  };
-  cache.set(key, { value, at: Date.now() });
-  return value;
+  return { z, tileCount: tileCount(z), tiles: toCoverageTiles(rows) };
+}
+
+export async function getCoverageTiles(): Promise<CoverageResponse> {
+  // Les DEUX réglages sont lus avant la consultation du cache : ils entrent
+  // tous deux dans la clé.
+  const z = assertTileZoom(await getSetting("coverage_tile_zoom"));
+  const bounds = await getSetting("map_bounds");
+
+  const key = cacheKey(z, bounds);
+  const cached = cache.get(key);
+  if (cached && Date.now() - cached.at < TTL_MS) return cached.promesse;
+
+  const promesse = interrogerBase(z, bounds);
+  cache.set(key, { promesse, at: Date.now() });
+
+  // Un ÉCHEC ne doit pas être servi pendant 10 minutes : on retire l'entrée pour
+  // que la tentative suivante reparte. Le test d'identité évite de supprimer une
+  // entrée plus récente posée entre-temps.
+  promesse.catch(() => {
+    if (cache.get(key)?.promesse === promesse) cache.delete(key);
+  });
+
+  return promesse;
 }

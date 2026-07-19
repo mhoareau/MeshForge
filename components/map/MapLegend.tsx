@@ -21,8 +21,8 @@ const COVERAGE_SCALE: Record<
     { color: SNR_UNKNOWN_COLOR, label: "Mesure inexploitable" },
   ],
   gateways: [
-    { color: SNR_GOOD, label: "3 relais ou plus (résilient)" },
-    { color: SNR_FAIR, label: "2 relais" },
+    { color: SNR_GOOD, label: "3 relais ou plus depuis un même point" },
+    { color: SNR_FAIR, label: "2 relais depuis un même point" },
     { color: SNR_BAD, label: "1 seul relais (fragile)" },
   ],
   nodes: [
