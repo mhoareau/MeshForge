@@ -292,11 +292,36 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml \
 | `yarn dev`                  | Serveur Next.js (dashboard)                  |
 | `yarn worker:dev`           | Worker MQTT en watch (ingestion)             |
 | `yarn build` / `yarn start` | Build & run production                       |
-| `yarn test`                 | Tests Vitest (logique pure, TDD)             |
+| `yarn test`                 | Tests Vitest                                 |
+| `yarn test:coverage`        | Tests + couverture (seuils cliquet, joué en CI) |
 | `yarn typecheck`            | `tsc --noEmit` (TypeScript strict)           |
 | `yarn lint`                 | ESLint                                       |
 | `yarn create-admin`         | Crée un compte admin (DB, bcrypt)            |
 | `yarn docker:prod`          | Build + lance tout le stack en Docker (prod) |
+
+### Écrire un test
+
+Les tests sont **co-localisés** (`foo.ts` → `foo.test.ts`) et tournent par défaut
+en environnement **node** : la majorité porte sur de la logique pure extraite des
+requêtes et des composants, et un DOM simulé les ralentirait sans rien apporter.
+
+Pour un test de **composant React**, ouvrir le fichier par ce commentaire — c'est
+lui, et lui seul, qui bascule le fichier en jsdom :
+
+```tsx
+// @vitest-environment jsdom
+import { render, screen } from "@testing-library/react";
+import { MapLegend } from "@/components/map/MapLegend";
+```
+
+Matchers `jest-dom` et démontage entre tests sont fournis par `vitest.setup.ts`.
+Gabarit de référence : `components/map/MapLegend.test.tsx`.
+
+**Couverture** : les seuils de `vitest.config.ts` sont des **cliquets** posés
+sous le niveau mesuré — ils interdisent la régression, ils n'attestent pas d'une
+cible atteinte. Les relever au fil des modules couverts.
+À savoir : un fichier sans branche affiche `100 %` de branches (`0/0`), d'où le
+seuil sur les *statements*, qui est celui qui mord.
 
 ---
 
