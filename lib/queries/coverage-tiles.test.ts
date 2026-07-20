@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { assertTileZoom, toCoverageTiles } from "./coverage-tiles";
+import { assertTileZoom, cacheKey, toCoverageTiles } from "./coverage-tiles";
 import {
   DEFAULT_COVERAGE_TILE_ZOOM,
   MAX_COVERAGE_TILE_ZOOM,
@@ -89,5 +89,40 @@ describe("assertTileZoom — défense en profondeur", () => {
     expect(() => assertTileZoom(22)).toThrow();
     expect(() => assertTileZoom(15.5)).toThrow();
     expect(() => assertTileZoom(Number.NaN)).toThrow();
+  });
+});
+
+// La clé de cache doit couvrir TOUTES les entrées de la requête. Un oubli des
+// bornes servait l'ancien découpage pendant 10 minutes après un élargissement
+// en admin : le territoire nouvellement inclus s'affichait « non exploré »
+// alors que les paquets existaient.
+describe("cacheKey", () => {
+  const bornes = { west: 54.7, south: -21.9, east: 56.3, north: -20.4 };
+
+  it("distingue deux zooms", () => {
+    expect(cacheKey(15, bornes)).not.toBe(cacheKey(14, bornes));
+  });
+
+  it("distingue deux jeux de bornes à zoom égal", () => {
+    expect(cacheKey(15, bornes)).not.toBe(
+      cacheKey(15, { ...bornes, east: 57 }),
+    );
+  });
+
+  it("distingue chacune des quatre bornes", () => {
+    for (const cote of ["west", "south", "east", "north"] as const) {
+      expect(cacheKey(15, bornes)).not.toBe(
+        cacheKey(15, { ...bornes, [cote]: bornes[cote] + 1 }),
+      );
+    }
+  });
+
+  it("distingue une carte ouverte d'une carte bornée", () => {
+    expect(cacheKey(15, null)).not.toBe(cacheKey(15, bornes));
+  });
+
+  it("est stable pour des entrées identiques", () => {
+    expect(cacheKey(15, { ...bornes })).toBe(cacheKey(15, { ...bornes }));
+    expect(cacheKey(15, null)).toBe(cacheKey(15, null));
   });
 });

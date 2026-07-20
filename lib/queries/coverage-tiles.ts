@@ -275,7 +275,9 @@ export function assertTileZoom(z: number): number {
 const TTL_MS = 600_000; // 10 min
 const cache = new Map<string, { promesse: Promise<CoverageResponse>; at: number }>();
 
-const cacheKey = (z: number, bounds: MapBounds | null): string =>
+// Exportée pour être testable : c'est ici que se joue l'invariant dont l'absence
+// servait l'ancien découpage pendant 10 min après un changement de bornes.
+export const cacheKey = (z: number, bounds: MapBounds | null): string =>
   bounds
     ? `${z}|${bounds.west},${bounds.south},${bounds.east},${bounds.north}`
     : `${z}|open`;

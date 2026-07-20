@@ -25,17 +25,18 @@ export const COVERAGE_SOURCE = "coverage";
 export const COVERAGE_FILL_ID = "coverage-fill";
 export const COVERAGE_LINE_ID = "coverage-line";
 
-// Échelle des métriques de COMPTAGE (redondance / émetteurs distincts). Palier
-// atteint = couleur. Volontairement discrète et non interpolée : « 2 relais »
-// est un fait, pas un point sur un dégradé.
-const COUNT_STEPS: { min: number; color: string }[] = [
-  { min: 3, color: SNR_GOOD },
-  { min: 2, color: SNR_FAIR },
-  { min: 1, color: SNR_BAD },
-];
-
-const countColor = (n: number): string =>
-  COUNT_STEPS.find((s) => n >= s.min)?.color ?? SNR_BAD;
+// Échelle des métriques de COMPTAGE (redondance / émetteurs distincts). Paliers
+// francs, volontairement non interpolés : « 2 relais » est un fait, pas un point
+// sur un dégradé. Les libellés correspondants vivent dans MapLegend.
+// Écrit en paliers explicites plutôt qu'en table parcourue : la table imposait
+// un `?? ` de repli inatteignable (les compteurs valent toujours au moins 1,
+// une tuile n'existant que s'il y a au moins une réception), c'est-à-dire une
+// branche que rien ne peut couvrir.
+const countColor = (n: number): string => {
+  if (n >= 3) return SNR_GOOD;
+  if (n >= 2) return SNR_FAIR;
+  return SNR_BAD;
+};
 
 // Couleur d'une tuile pour la métrique active.
 //
