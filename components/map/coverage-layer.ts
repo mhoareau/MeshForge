@@ -15,10 +15,7 @@ import type {
   LineLayerSpecification,
 } from "maplibre-gl";
 import type { CoverageMetric, CoverageTile } from "@/types";
-// Import RELATIF (pas @/) : le repo n'a pas de vitest.config.ts, donc l'alias
-// n'est pas résolu par vitest pour les imports de VALEUR (les imports de type
-// passent, eux, car effacés à la compilation).
-import { tileToRing } from "../../lib/tiles";
+import { tileToRing } from "@/lib/tiles";
 import { SNR_BAD, SNR_FAIR, SNR_GOOD, signalColor } from "./signal-color";
 
 export const COVERAGE_SOURCE = "coverage";

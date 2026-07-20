@@ -6,7 +6,7 @@ import {
   SNR_GOOD,
   SNR_UNKNOWN_COLOR,
 } from "./signal-color";
-import { tileToBounds } from "../../lib/tiles";
+import { tileToBounds } from "@/lib/tiles";
 import type { CoverageTile } from "@/types";
 
 const tile = (over: Partial<CoverageTile> = {}): CoverageTile => ({
