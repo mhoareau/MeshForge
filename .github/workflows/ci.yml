@@ -25,5 +25,9 @@ jobs:
       - name: Lint
         run: yarn lint
 
+      # `test:coverage` plutôt que `test` : les seuils de vitest.config.ts ne
+      # servent à rien s'ils ne sont pas évalués en CI. Ce sont des seuils
+      # CLIQUET, calés sous le niveau actuel — ils interdisent la régression,
+      # ils n'attestent pas d'une cible atteinte.
       - name: Test
-        run: yarn test
+        run: yarn test:coverage
