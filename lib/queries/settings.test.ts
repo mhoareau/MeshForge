@@ -231,9 +231,9 @@ describe("parseMqttOnboarding / requireMqttOnboarding", () => {
   });
 });
 
-// La maille conditionne à la fois le SQL (2^z) et le seuil de precision_bits :
-// un réglage hors plage doit être refusé à l'écriture, jamais silencieusement
-// accepté (z20 = millions de tuiles ; z17+ = plus fin que le flou public).
+// La maille conditionne le SQL (2^z) et la granularité publique : un réglage
+// hors plage doit être refusé à l'écriture, jamais silencieusement accepté
+// (z20 = millions de tuiles ; z17+ = plus fin que le flou public).
 describe("coverage_tile_zoom — maille des tuiles de couverture", () => {
   it("lecture : accepte un entier dans la plage", () => {
     expect(parseCoverageTileZoom(13, DEFAULT_COVERAGE_TILE_ZOOM)).toBe(13);

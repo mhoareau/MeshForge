@@ -3,6 +3,8 @@ import { haversineKm } from "./geo";
 import {
   MAX_MERCATOR_LAT,
   lonLatToTile,
+  meshtasticPrecisionHalfSpan,
+  positionUncertaintyFitsTile,
   tileCount,
   tileToBounds,
   tileToRing,
@@ -48,6 +50,42 @@ describe("lonLatToTile", () => {
     const stDenis = lonLatToTile(55.4481, -20.8789, z);
     const stPierre = lonLatToTile(55.4781, -21.3393, z);
     expect(stDenis).not.toEqual(stPierre);
+  });
+});
+
+describe("précision Meshtastic", () => {
+  it("reproduit la demi-largeur du masque binaire du firmware", () => {
+    expect(meshtasticPrecisionHalfSpan(14)).toBe(0.0131072);
+    expect(meshtasticPrecisionHalfSpan(16)).toBe(0.0032768);
+    expect(meshtasticPrecisionHalfSpan(32)).toBe(0);
+  });
+
+  it("refuse les précisions absentes ou ambiguës", () => {
+    expect(meshtasticPrecisionHalfSpan(0)).toBeNull();
+    expect(meshtasticPrecisionHalfSpan(14.5)).toBeNull();
+    expect(meshtasticPrecisionHalfSpan(33)).toBeNull();
+  });
+
+  it("n'assimile pas precision_bits au zoom de la tuile", () => {
+    const z = 15;
+    const { x, y } = lonLatToTile(REUNION_LON, REUNION_LAT, z);
+    const b = tileToBounds(x, y, z);
+    const lon = (b.west + b.east) / 2;
+    const lat = (b.south + b.north) / 2;
+
+    expect(positionUncertaintyFitsTile(lon, lat, 32, z)).toBe(true);
+    expect(positionUncertaintyFitsTile(lon, lat, 16, z)).toBe(true);
+    expect(positionUncertaintyFitsTile(lon, lat, 15, z)).toBe(false);
+  });
+
+  it("rejette une position pourtant fine quand son incertitude traverse un bord", () => {
+    const z = 15;
+    const { x, y } = lonLatToTile(REUNION_LON, REUNION_LAT, z);
+    const b = tileToBounds(x, y, z);
+    const lat = (b.south + b.north) / 2;
+    expect(positionUncertaintyFitsTile(b.west + 0.0001, lat, 16, z)).toBe(
+      false,
+    );
   });
 });
 

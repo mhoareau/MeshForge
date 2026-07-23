@@ -13,7 +13,17 @@ const REPONSE = {
   z: 15,
   tileCount: 32768,
   tiles: [
-    { x: 1, y: 2, snrP90: -8, snrMax: -5, gateways: 2, nodes: 1, samples: 3 },
+    {
+      x: 1,
+      y: 2,
+      snrP90: -8,
+      snrMax: -5,
+      gateways: 2,
+      nodes: 3,
+      transmissions: 3,
+      samples: 4,
+      days: 2,
+    },
   ],
 };
 

@@ -34,13 +34,15 @@ describe("MapLegend — légende de base", () => {
 
   it("libelle le bouton selon l'état et expose aria-expanded", () => {
     const { unmount } = render(<MapLegend {...props()} />);
-    const ouvert = screen.getByRole("button");
+    const ouvert = screen.getByRole("button", {
+      name: "Masquer la légende",
+    });
     expect(ouvert).toHaveTextContent("Masquer la légende");
     expect(ouvert).toHaveAttribute("aria-expanded", "true");
     unmount();
 
     render(<MapLegend {...props({ open: false })} />);
-    const ferme = screen.getByRole("button");
+    const ferme = screen.getByRole("button", { name: "Légende" });
     expect(ferme).toHaveTextContent("Légende");
     expect(ferme).toHaveAttribute("aria-expanded", "false");
   });
@@ -48,13 +50,15 @@ describe("MapLegend — légende de base", () => {
   it("remonte le clic sur le bouton", async () => {
     const onToggle = vi.fn();
     render(<MapLegend {...props({ onToggle })} />);
-    await userEvent.click(screen.getByRole("button"));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Masquer la légende" }),
+    );
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
 
   it("repart d'un document propre entre deux tests", () => {
     // Vérifie le cleanup de vitest.setup.ts : sans lui, les rendus précédents
-    // s'accumuleraient et getByRole("button") deviendrait ambigu.
+    // s'accumuleraient.
     render(<MapLegend {...props()} />);
     expect(screen.getAllByRole("button")).toHaveLength(1);
   });
@@ -88,11 +92,12 @@ describe("MapLegend — section couverture", () => {
   it("affiche l'échelle des émetteurs distincts", () => {
     render(<MapLegend {...props({ coverage: "nodes" })} />);
     expect(screen.getByText("3 émetteurs ou plus")).toBeInTheDocument();
+    expect(screen.getByText("1 seul émetteur")).toBeInTheDocument();
   });
 
   it("affiche TOUJOURS « non exploré » quand la couche est active", () => {
     // Entrée essentielle : sans elle, une zone blanche se lit « pas de réseau »
-    // alors qu'elle veut dire « jamais mesuré ».
+    // alors qu'elle veut dire « aucune mesure attribuable ».
     for (const m of ["snr", "gateways", "nodes"] as const) {
       const { unmount } = render(<MapLegend {...props({ coverage: m })} />);
       expect(screen.getByText(/Non exploré/)).toBeInTheDocument();

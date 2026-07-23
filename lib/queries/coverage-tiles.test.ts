@@ -6,14 +6,18 @@ import {
   MIN_COVERAGE_TILE_ZOOM,
 } from "./settings";
 
-const row = (over: Partial<Record<string, unknown>> = {}) => ({
+type CoverageInputRow = Parameters<typeof toCoverageTiles>[0][number];
+
+const row = (over: Partial<CoverageInputRow> = {}): CoverageInputRow => ({
   tx: 1,
   ty: 2,
   snrP90: -8.5,
   snrMax: -3,
   gateways: 2,
   nodes: 4,
+  transmissions: 12,
   samples: 37,
+  days: 5,
   ...over,
 });
 
@@ -27,37 +31,48 @@ describe("toCoverageTiles", () => {
         snrMax: -3,
         gateways: 2,
         nodes: 4,
+        transmissions: 12,
         samples: 37,
+        days: 5,
       },
     ]);
   });
 
   it("coerce les entiers rendus en string par pg (COUNT bigint)", () => {
     const [tile] = toCoverageTiles([
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      row({ tx: "10", ty: "20", gateways: "3", nodes: "9", samples: "512" }) as any,
+      row({
+        tx: "10",
+        ty: "20",
+        gateways: "3",
+        nodes: "9",
+        transmissions: "120",
+        samples: "512",
+        days: "17",
+      }),
     ]);
     expect(tile).toMatchObject({
       x: 10,
       y: 20,
       gateways: 3,
       nodes: 9,
+      transmissions: 120,
       samples: 512,
+      days: 17,
     });
   });
 
   it("préserve un SNR null sans le maquiller en 0 dB", () => {
     // 0 dB est un EXCELLENT signal : convertir null en 0 peindrait une tuile
     // sans mesure exploitable en vert vif.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [tile] = toCoverageTiles([row({ snrP90: null, snrMax: null }) as any]);
+    const [tile] = toCoverageTiles([row({ snrP90: null, snrMax: null })]);
     expect(tile.snrP90).toBeNull();
     expect(tile.snrMax).toBeNull();
   });
 
   it("préserve un SNR négatif et l'indice 0", () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [tile] = toCoverageTiles([row({ tx: 0, ty: 0, snrP90: -19.75 }) as any]);
+    const [tile] = toCoverageTiles([
+      row({ tx: 0, ty: 0, snrP90: -19.75 }),
+    ]);
     expect(tile.x).toBe(0);
     expect(tile.y).toBe(0);
     expect(tile.snrP90).toBe(-19.75);
@@ -119,6 +134,21 @@ describe("cacheKey", () => {
 
   it("distingue une carte ouverte d'une carte bornée", () => {
     expect(cacheKey(15, null)).not.toBe(cacheKey(15, bornes));
+  });
+
+  it("distingue les canaux publics et le mode démo", () => {
+    expect(cacheKey(15, bornes, ["Fr_Balise"])).not.toBe(
+      cacheKey(15, bornes, ["Fr_BlaBla"]),
+    );
+    expect(cacheKey(15, bornes, ["Fr_Balise"], false)).not.toBe(
+      cacheKey(15, bornes, ["Fr_Balise"], true),
+    );
+  });
+
+  it("est indépendante de l'ordre des canaux", () => {
+    expect(cacheKey(15, bornes, ["B", "A"])).toBe(
+      cacheKey(15, bornes, ["A", "B"]),
+    );
   });
 
   it("est stable pour des entrées identiques", () => {

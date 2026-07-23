@@ -184,11 +184,13 @@ export interface CoverageTile {
   // relais.
   gateways: number;
   nodes: number; // émetteurs distincts observés dans la tuile
-  // Réceptions retenues, DÉDUPLIQUÉES par (passerelle, id de paquet) : une même
-  // réception republiée sur /json/ ET /e/ ne compte qu'une fois. C'est ce qui
-  // distingue cette valeur d'un comptage de lignes brut — lequel resterait
-  // indigne de confiance, cf. le commentaire de CoverageMetric ci-dessus.
+  transmissions: number; // émissions distinctes après sessionisation des IDs
+  // Réceptions retenues, DÉDUPLIQUÉES par passerelle et occurrence d'émission :
+  // une même réception republiée sur /json/ ET /e/ ne compte qu'une fois. L'id
+  // Meshtastic pouvant être réutilisé, deux occurrences séparées de plus de
+  // cinq minutes restent distinctes.
   samples: number;
+  days: number; // jours UTC distincts contenant au moins une observation
 }
 
 // Le zoom est porté par la réponse : il est configurable (coverage_tile_zoom) et

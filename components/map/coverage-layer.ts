@@ -29,7 +29,13 @@ export const COVERAGE_LINE_ID = "coverage-line";
 // un `?? ` de repli inatteignable (les compteurs valent toujours au moins 1,
 // une tuile n'existant que s'il y a au moins une réception), c'est-à-dire une
 // branche que rien ne peut couvrir.
-const countColor = (n: number): string => {
+const gatewayCountColor = (n: number): string => {
+  if (n >= 3) return SNR_GOOD;
+  if (n >= 2) return SNR_FAIR;
+  return SNR_BAD;
+};
+
+const nodeCountColor = (n: number): string => {
   if (n >= 3) return SNR_GOOD;
   if (n >= 2) return SNR_FAIR;
   return SNR_BAD;
@@ -51,9 +57,9 @@ export function tileFillColor(
     case "snr":
       return signalColor(tile.snrP90, null);
     case "gateways":
-      return countColor(tile.gateways);
+      return gatewayCountColor(tile.gateways);
     case "nodes":
-      return countColor(tile.nodes);
+      return nodeCountColor(tile.nodes);
   }
 }
 
@@ -68,7 +74,9 @@ export interface CoverageFeatureProps {
   snrMax: number | null;
   gateways: number;
   nodes: number;
+  transmissions: number;
   samples: number;
+  days: number;
 }
 
 export type CoverageFeatureCollection = {
@@ -102,7 +110,9 @@ export function toCoverageGeoJSON(
         snrMax: t.snrMax,
         gateways: t.gateways,
         nodes: t.nodes,
+        transmissions: t.transmissions,
         samples: t.samples,
+        days: t.days,
       },
     })),
   };

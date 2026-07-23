@@ -4,57 +4,41 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 import maplibregl from "maplibre-gl";
 import type {
-  PublicNode,
-  NodeUpdate,
-  Observation,
-  MapBounds,
   CoverageResponse,
   CoverageSelection,
+  MapBounds,
+  NodeUpdate,
+  Observation,
+  PublicNode,
 } from "@/types";
+import { nodeFeature, shortLabel, type LngLat } from "./map-data";
 import {
-  nodeFeature,
-  shortLabel,
-  lerp,
-  lineFeature,
-} from "@/components/map/map-data";
-import type { LngLat } from "@/components/map/map-data";
-import { resolvePillSpread } from "@/components/map/pill-spread";
-import {
-  clusterElement,
-  hoverCard,
-  pillElement,
-} from "@/components/map/map-dom";
-import {
+  MESH_BADGE_LAYER,
   MESH_DIRECT_LAYER,
   MESH_RELAY_LAYER,
-  MESH_BADGE_LAYER,
-} from "@/components/map/map-layers";
+} from "./map-layers";
 import {
-  COVERAGE_FILL_ID,
-  COVERAGE_FILL_LAYER,
-  COVERAGE_LINE_ID,
-  COVERAGE_LINE_LAYER,
-  COVERAGE_SOURCE,
-  toCoverageGeoJSON,
-} from "@/components/map/coverage-layer";
-import { coverageCard } from "@/components/map/map-dom";
-import { bestTargets } from "@/components/map/hover-edges";
-import type { HoverEdge } from "@/components/map/hover-edges";
-import { haversineKm } from "@/lib/geo";
-import type { HopFilter } from "@/components/map/MapFilters";
+  createNodeMarkerController,
+  type NodeMapFilters,
+  type NodeMarkerController,
+} from "./node-marker-controller";
+import {
+  bridgeNodeIds,
+  indexObservations,
+  type ObservationIndex,
+} from "./observation-index";
+import {
+  createCoverageController,
+  type CoverageController,
+} from "./coverage-controller";
 
 // Au-delà de cette distance, un lien est probablement un artefact (GPS erroné /
 // module itinérant) vu la portée LoRa à La Réunion : masqué automatiquement.
 const FAR_LINK_KM = 20;
-
 const REUNION_CENTER: [number, number] = [55.536, -21.115];
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty";
 
-type MapFiltersState = {
-  search: string;
-  role: string;
-  sinceH: number;
-  hopFilter: HopFilter;
+type MapFiltersState = NodeMapFilters & {
   coverage: CoverageSelection;
 };
 
@@ -65,6 +49,12 @@ type UseMapControllerProps = {
   filters: MapFiltersState;
 };
 
+const emptyObservationIndex = (): ObservationIndex => ({
+  minHopByNode: new Map(),
+  heardByNode: new Map(),
+  hoverByNode: new Map(),
+});
+
 export function useMapController({
   containerRef,
   bounds,
@@ -72,50 +62,27 @@ export function useMapController({
   filters,
 }: UseMapControllerProps) {
   const [roleOptions, setRoleOptions] = useState<string[]>([]);
-  // Vrai quand /api/coverage a échoué : la légende doit dire « indisponible »
-  // et surtout PAS laisser croire que le territoire n'a jamais été mesuré.
+  // Une panne de /api/coverage doit être distinguée d'une carte sans mesure.
   const [coverageError, setCoverageError] = useState(false);
+
   const nodesById = useRef<Map<string, GeoJSON.Feature>>(new Map());
-  const obsRef = useRef<Map<string, { nodeId: string; hop: number; packets: number }[]>>(
-    new Map(),
-  );
-  const minHopRef = useRef<Map<string, number>>(new Map());
-  const bridgeRef = useRef<Set<string>>(new Set());
-  // node -> gateways qui l'ont entendu (pour recalculer l'anneau "pont" en
-  // tenant compte du seuil 20 km, cohérent avec les liens au survol).
-  const heardByRef = useRef<Map<string, Set<string>>>(new Map());
-  const bridgeSyncRef = useRef<() => void>(() => {});
-  // Liens node↔node déclarés (NeighborInfo/traceroute), à côté des observations
-  // gateway : paires canoniques venues de l'API, indexées au survol des deux
-  // extrémités. Ils n'alimentent NI minHop (filtre hops) NI l'anneau "pont"
-  // (sémantiques réservées aux observations gateway).
-  const declaredLinksRef = useRef<
-    { a: string; b: string; source: "neighbor" | "traceroute" }[]
-  >([]);
-  const hoverLinkRef = useRef<Map<string, HoverEdge[]>>(new Map());
-  // Tuiles de couverture : chargées PARESSEUSEMENT (au premier affichage de la
-  // couche) pour ne pas imposer ~115 Ko à qui ne l'ouvre jamais. Conservées
-  // ensuite : la donnée bouge lentement (fenêtre 30 j, cache serveur 10 min),
-  // changer de métrique ne doit pas refaire un aller-retour réseau.
-  const coverageRef = useRef<CoverageResponse | null>(null);
-  const coverageSyncRef = useRef<() => void>(() => {});
+  const observationsRef = useRef<ObservationIndex>(emptyObservationIndex());
+  const bridgesRef = useRef<Set<string>>(new Set());
+  const coverageCacheRef = useRef<CoverageResponse | null>(null);
   const filtersRef = useRef(filters);
-  const refreshRef = useRef<() => void>(() => {});
+  const nodeControllerRef = useRef<NodeMarkerController | null>(null);
+  const coverageControllerRef = useRef<CoverageController | null>(null);
+
   const router = useRouter();
   const routerRef = useRef(router);
+
   const updateRoleOptions = (): void => {
     const roles = new Set<string>();
-    for (const f of nodesById.current.values()) {
-      const role = (f.properties as Record<string, unknown> | null)?.role;
+    for (const feature of nodesById.current.values()) {
+      const role = (feature.properties as Record<string, unknown> | null)?.role;
       if (typeof role === "string" && role.trim()) roles.add(role);
     }
     setRoleOptions([...roles].sort((a, b) => a.localeCompare(b)));
-  };
-  const matchesHopFilter = (hop: number | undefined, filter: HopFilter) => {
-    if (filter === "all") return true;
-    if (hop === undefined) return false;
-    if (filter === "3plus") return hop >= 3;
-    return hop === Number(filter);
   };
 
   useEffect(() => {
@@ -124,14 +91,15 @@ export function useMapController({
 
   useEffect(() => {
     filtersRef.current = filters;
-    refreshRef.current();
-    bridgeSyncRef.current();
-    coverageSyncRef.current();
+    nodeControllerRef.current?.refreshNodes();
+    nodeControllerRef.current?.applyBridgeHighlight();
+    coverageControllerRef.current?.sync();
   }, [filters]);
 
   useEffect(() => {
     if (!containerRef.current) return;
     let alive = true;
+    let observationsTimer: number | null = null;
 
     const center: [number, number] = bounds
       ? [(bounds.west + bounds.east) / 2, (bounds.south + bounds.north) / 2]
@@ -150,351 +118,62 @@ export function useMapController({
         : undefined,
     });
     map.addControl(new maplibregl.NavigationControl(), "top-right");
-    const tapToPreview = window.matchMedia(
-      "(hover: none), (pointer: coarse)",
-    ).matches;
 
-    const hoverPopup = new maplibregl.Popup({
-      closeButton: false,
-      closeOnClick: false,
-      offset: 19,
-      className: "mf-popup",
-    });
-    let pinnedNodeId: string | null = null;
-    const openNodePopup = (
-      nodeId: string,
-      p: Record<string, unknown>,
-      m: maplibregl.Marker,
-    ): void => {
-      const card = hoverCard(p);
-      card.style.cursor = "pointer";
-      card.addEventListener("click", (event) => {
-        event.stopPropagation();
-        routerRef.current.push(`/node/${encodeURIComponent(nodeId)}`);
-      });
-      // spreadPills écarte les pastilles empilées en pixels (setOffset) sans
-      // toucher leur position géo : on ancre le popup sur la position VISUELLE
-      // de la pastille survolée, sinon il se centre sur le milieu de la pile
-      // (chevauche le pointeur -> flickering).
-      const base = map.project(m.getLngLat());
-      const off = m.getOffset();
-      const anchor = map.unproject([base.x + off.x, base.y + off.y]);
-      hoverPopup.setLngLat(anchor).setDOMContent(card).addTo(map);
-    };
-
-    const nodesSource = (): maplibregl.GeoJSONSource | undefined =>
-      alive
-        ? (map.getSource("nodes") as maplibregl.GeoJSONSource | undefined)
-        : undefined;
-    const refreshNodes = (): void => {
-      if (!alive) return;
-      const { search, role, sinceH, hopFilter } = filtersRef.current;
-      const q = search.trim().toLowerCase();
-      const minSeen = sinceH > 0 ? Date.now() - sinceH * 3600000 : 0;
-      const features = [...nodesById.current.values()].filter((f) => {
-        const p = (f.properties ?? {}) as Record<string, unknown>;
-        if (role && p.role !== role) return false;
-        if (minSeen) {
-          const t = p.lastSeen ? new Date(p.lastSeen as string).getTime() : 0;
-          if (t < minSeen) return false;
-        }
-        if (q) {
-          const hay = `${p.nodeId} ${p.longName} ${p.shortName}`.toLowerCase();
-          if (!hay.includes(q)) return false;
-        }
-        if (hopFilter !== "all") {
-          if (hopFilter === "0" && p.isGateway === true) return true;
-          const mh = minHopRef.current.get(p.nodeId as string);
-          if (!matchesHopFilter(mh, hopFilter)) return false;
-        }
-        return true;
-      });
-      nodesSource()?.setData({ type: "FeatureCollection", features });
-    };
-    refreshRef.current = refreshNodes;
-    let observationsTimer: number | null = null;
-    const posById = (nodeId: string): LngLat | null => {
-      const f = nodesById.current.get(nodeId);
-      return f && f.geometry.type === "Point"
-        ? (f.geometry.coordinates as LngLat)
+    const positionOf = (nodeId: string): LngLat | null => {
+      const feature = nodesById.current.get(nodeId);
+      return feature?.geometry.type === "Point"
+        ? (feature.geometry.coordinates as LngLat)
         : null;
     };
 
-    let meshRaf: number | null = null;
-    const meshSource = (): maplibregl.GeoJSONSource | undefined =>
-      map.getSource("mesh") as maplibregl.GeoJSONSource | undefined;
-    const clearMesh = (): void => {
-      if (meshRaf !== null) cancelAnimationFrame(meshRaf);
-      meshRaf = null;
-      meshSource()?.setData({ type: "FeatureCollection", features: [] });
-    };
-    let activeMeshNodeId: string | null = null;
-    let visualAnchors = new Map<string, LngLat>();
-    const visualAnchor = (nodeId: string): LngLat | null =>
-      visualAnchors.get(nodeId) ?? posById(nodeId);
+    const nodeController = createNodeMarkerController({
+      map,
+      tapToPreview: window.matchMedia(
+        "(hover: none), (pointer: coarse)",
+      ).matches,
+      maxLinkDistanceKm: FAR_LINK_KM,
+      nodes: nodesById.current,
+      getFilters: () => filtersRef.current,
+      getMinHopByNode: () => observationsRef.current.minHopByNode,
+      getBridgeNodeIds: () => bridgesRef.current,
+      getHoverByNode: () => observationsRef.current.hoverByNode,
+      onOpenNode: (nodeId) =>
+        routerRef.current.push(`/node/${encodeURIComponent(nodeId)}`),
+    });
+    nodeControllerRef.current = nodeController;
 
-    // Toutes les arêtes du nœud survolé : observations packets + liens déclarés
-    // NeighborInfo/traceroute (hop 0 -> rendus comme les liens directs, code
-    // couleur hop existant). Une seule ligne par paire (bestTargets : hop
-    // MINIMAL et paquets MAX à source égale, priorité gateway sinon — le badge
-    // paquets d'une vraie observation prime sur un lien déclaré).
-    // Liens > 20 km masqués automatiquement.
-    const drawMesh = (nodeId: string, animate = true): void => {
-      const src = meshSource();
-      if (!src) return;
-      activeMeshNodeId = nodeId;
-      const rawStart = posById(nodeId);
-      const visualStart = visualAnchor(nodeId);
-      if (!rawStart || !visualStart) {
-        src.setData({ type: "FeatureCollection", features: [] });
-        return;
-      }
-      const { hopFilter } = filtersRef.current;
-      const targets = bestTargets(hoverLinkRef.current.get(nodeId) ?? [])
-        .filter((e) => matchesHopFilter(e.hop, hopFilter))
-        .map((e) => ({
-          hop: e.hop,
-          packets: e.packets,
-          rawPos: posById(e.nodeId),
-          visualPos: visualAnchor(e.nodeId),
-        }))
-        .filter(
-          (t): t is {
-            hop: number;
-            packets: number;
-            rawPos: LngLat;
-            visualPos: LngLat;
-          } => t.rawPos !== null && t.visualPos !== null,
-        )
-        .filter(
-          (t) =>
-            haversineKm(rawStart[1], rawStart[0], t.rawPos[1], t.rawPos[0]) <=
-            FAR_LINK_KM,
-        );
-      if (!targets.length) {
-        src.setData({ type: "FeatureCollection", features: [] });
-        return;
-      }
-      const start = performance.now();
-      const ease = (p: number): number => 1 - (1 - p) * (1 - p);
-      const step = (now: number): void => {
-        const p = animate ? ease(Math.min((now - start) / 550, 1)) : 1;
-        const features: GeoJSON.Feature[] = [];
-        for (const t of targets) {
-          const end = lerp(visualStart, t.visualPos, p);
-          features.push(lineFeature(visualStart, end, t.hop));
-          if (t.packets > 0) {
-            const mid = lerp(visualStart, end, 0.5);
-            features.push({
-              type: "Feature",
-              properties: { packets: t.packets },
-              geometry: { type: "Point", coordinates: mid },
-            });
-          }
-        }
-        src.setData({ type: "FeatureCollection", features });
-        if (animate && p < 1) meshRaf = requestAnimationFrame(step);
-      };
-      if (meshRaf !== null) cancelAnimationFrame(meshRaf);
-      meshRaf = requestAnimationFrame(step);
-    };
+    const coverageController = createCoverageController({
+      map,
+      getSelection: () => filtersRef.current.coverage,
+      getCachedCoverage: () => coverageCacheRef.current,
+      setCachedCoverage: (coverage) => {
+        coverageCacheRef.current = coverage;
+      },
+      isNodePopupOpen: nodeController.popupIsOpen,
+      onErrorChange: setCoverageError,
+    });
+    coverageControllerRef.current = coverageController;
 
-    const markers: Record<string, maplibregl.Marker> = {};
-    let onScreen: Record<string, maplibregl.Marker> = {};
-
-    const spreadPills = (): void => {
-      const ids = Object.keys(onScreen).filter((id) => id.startsWith("n"));
-      const boxes = ids.map((id) => {
-        const el = onScreen[id].getElement();
-        const pt = map.project(onScreen[id].getLngLat());
-        return {
-          x: pt.x,
-          y: pt.y,
-          w: Number(el.dataset.w) || 40,
-          h: Number(el.dataset.h) || 22,
-        };
-      });
-      const offsets = resolvePillSpread(boxes);
-      const anchors = new Map<string, LngLat>();
-      ids.forEach((id, i) => {
-        const marker = onScreen[id];
-        const offset: [number, number] = [offsets[i].dx, offsets[i].dy];
-        marker.setOffset(offset);
-        const pt = map.project(marker.getLngLat());
-        const anchor = map.unproject([pt.x + offset[0], pt.y + offset[1]]);
-        anchors.set(id.slice(1), [anchor.lng, anchor.lat]);
-      });
-      visualAnchors = anchors;
-      if (activeMeshNodeId) drawMesh(activeMeshNodeId, false);
-    };
-
-    const applyBridge = (): void => {
-      for (const id in onScreen) {
-        if (!id.startsWith("n")) continue;
-        const el = onScreen[id].getElement();
-        el.style.boxShadow = bridgeRef.current.has(id.slice(1))
-          ? "0 0 0 3px #2563eb, 0 1px 3px rgba(0,0,0,0.4)"
-          : "0 1px 3px rgba(0,0,0,0.35)";
-      }
-    };
-
-    const updateMarkers = (): void => {
-      if (!map.getSource("nodes") || !map.isSourceLoaded("nodes")) return;
-      const next: Record<string, maplibregl.Marker> = {};
-      for (const f of map.querySourceFeatures("nodes")) {
-        if (f.geometry.type !== "Point") continue;
-        const coords = f.geometry.coordinates as LngLat;
-        const p = f.properties;
-        const isCluster = p.cluster === true;
-        const id = isCluster ? `c${p.cluster_id}` : `n${p.nodeId}`;
-        if (next[id]) continue;
-
-        let marker: maplibregl.Marker | undefined = markers[id];
-        const gatewayState = isCluster
-          ? Number(p.hasGateway ?? 0) > 0
-          : p.isGateway === true;
-        if (marker?.getElement().dataset.gateway !== String(gatewayState)) {
-          marker?.remove();
-          delete markers[id];
-          marker = undefined;
-        }
-        if (!marker) {
-          const el = isCluster ? clusterElement(p) : pillElement(p);
-          marker = markers[id] = new maplibregl.Marker({
-            element: el,
-          }).setLngLat(coords);
-          const m = marker;
-          if (isCluster) {
-            const clusterId = p.cluster_id as number;
-            el.addEventListener("click", () => {
-              nodesSource()
-                ?.getClusterExpansionZoom(clusterId)
-                .then((zoom) => map.easeTo({ center: m.getLngLat(), zoom }));
-            });
-          } else {
-            const nodeId = String(p.nodeId);
-            el.addEventListener("mouseenter", () => {
-              if (tapToPreview) return;
-              if (pinnedNodeId) return;
-              openNodePopup(nodeId, p, m);
-              // Survol de N'IMPORTE QUEL nœud : ses arêtes issues des
-              // observations packets ; drawMesh ne dessine rien s'il n'en a aucune.
-              drawMesh(nodeId);
-            });
-            el.addEventListener("mouseleave", () => {
-              if (tapToPreview) return;
-              if (pinnedNodeId) return;
-              activeMeshNodeId = null;
-              hoverPopup.remove();
-              clearMesh();
-            });
-            el.addEventListener("click", (event) => {
-              event.stopPropagation();
-              if (!tapToPreview) {
-                routerRef.current.push(`/node/${encodeURIComponent(nodeId)}`);
-                return;
-              }
-              pinnedNodeId = nodeId;
-              openNodePopup(nodeId, p, m);
-              clearMesh();
-              drawMesh(nodeId);
-            });
-          }
-        } else {
-          marker.setLngLat(coords);
-        }
-        next[id] = marker;
-        if (!onScreen[id]) marker.addTo(map);
-      }
-      for (const id in onScreen) {
-        if (!next[id]) onScreen[id].remove();
-      }
-      onScreen = next;
-      spreadPills();
-      applyBridge();
+    const computeBridges = (): void => {
+      if (!alive) return;
+      bridgesRef.current = bridgeNodeIds(
+        observationsRef.current.heardByNode,
+        positionOf,
+        FAR_LINK_KM,
+      );
+      nodeController.applyBridgeHighlight();
     };
 
     const loadObservations = (): void => {
       fetch("/api/observations")
-        .then((r) => r.json() as Promise<Observation[]>)
-        .then((obs) => {
-          const m = obsRef.current;
-          m.clear();
-          const minHop = minHopRef.current;
-          minHop.clear();
-          const gwByNode = new Map<string, Set<string>>();
-          const declared: { a: string; b: string; source: "neighbor" | "traceroute" }[] = [];
-          for (const o of obs) {
-            const hop = o.bestHop ?? 9;
-            if (o.source === "neighbor" || o.source === "traceroute") {
-              // Lien déclaré node↔node : uniquement pour le survol (rebuildHover),
-              // hors minHop/anneau pont (sémantiques gateway).
-              declared.push({ a: o.gatewayId, b: o.nodeId, source: o.source });
-              continue;
-            }
-            const arr = m.get(o.gatewayId) ?? [];
-            arr.push({ nodeId: o.nodeId, hop, packets: o.packets });
-            m.set(o.gatewayId, arr);
-            const prev = minHop.get(o.nodeId);
-            if (prev === undefined || hop < prev) minHop.set(o.nodeId, hop);
-            const set = gwByNode.get(o.nodeId) ?? new Set<string>();
-            set.add(o.gatewayId);
-            gwByNode.set(o.nodeId, set);
-          }
-          declaredLinksRef.current = declared;
-          heardByRef.current = gwByNode;
+        .then((response) => response.json() as Promise<Observation[]>)
+        .then((observations) => {
+          if (!alive) return;
+          observationsRef.current = indexObservations(observations);
           computeBridges();
-          rebuildHover();
-          refreshNodes();
+          nodeController.refreshNodes();
         })
         .catch(() => {});
-    };
-
-    // Anneau "vu par plusieurs gateways" : un node est un pont s'il est entendu
-    // par >= 2 gateways À MOINS DE 20 km, cohérent avec l'affichage des liens
-    // au survol. Nécessite les positions.
-    const computeBridges = (): void => {
-      const bridges = new Set<string>();
-      for (const [node, gws] of heardByRef.current) {
-        const np = posById(node);
-        if (!np) continue;
-        let count = 0;
-        for (const gw of gws) {
-          if (gw === node) continue;
-          const gp = posById(gw);
-          if (!gp) continue;
-          if (haversineKm(np[1], np[0], gp[1], gp[0]) <= FAR_LINK_KM) count++;
-        }
-        if (count >= 2) bridges.add(node);
-      }
-      bridgeRef.current = bridges;
-      applyBridge();
-    };
-    bridgeSyncRef.current = computeBridges;
-
-    // Index pour le survol. Les observations sont une réception gateway -> node ;
-    // on les ajoute dans les deux sens pour garder le comportement actuel :
-    // survoler un gateway ou un node montre ses liens packets connus. Les liens
-    // déclarés (NeighborInfo/traceroute, hop 0 par définition, pas de badge
-    // paquets) sont indexés sous leurs deux extrémités de la même façon.
-    const rebuildHover = (): void => {
-      const h = new Map<string, HoverEdge[]>();
-      const add = (a: string, edge: HoverEdge): void => {
-        const arr = h.get(a) ?? [];
-        arr.push(edge);
-        h.set(a, arr);
-      };
-      for (const [gw, list] of obsRef.current) {
-        for (const e of list) {
-          add(gw, { nodeId: e.nodeId, hop: e.hop, packets: e.packets, source: "gateway" });
-          add(e.nodeId, { nodeId: gw, hop: e.hop, packets: e.packets, source: "gateway" });
-        }
-      }
-      for (const l of declaredLinksRef.current) {
-        add(l.a, { nodeId: l.b, hop: 0, packets: 0, source: l.source });
-        add(l.b, { nodeId: l.a, hop: 0, packets: 0, source: l.source });
-      }
-      hoverLinkRef.current = h;
     };
 
     const scheduleObservationsRefresh = (): void => {
@@ -502,108 +181,8 @@ export function useMapController({
       observationsTimer = window.setTimeout(loadObservations, 1500);
     };
 
-    // --- Couche « tuiles de couverture » -----------------------------------
-    let coverageFetching = false;
-    // Popup DISTINCTE de hoverPopup. Attention : les deux PEUVENT se disputer
-    // le pointeur — les pills sont enfants de getCanvasContainer(), donc leur
-    // survol remonte jusqu'au gestionnaire de la carte. L'arbitrage est fait
-    // dans le handler mousemove (la fiche node prime).
-    const coveragePopup = new maplibregl.Popup({
-      closeButton: false,
-      closeOnClick: false,
-      offset: 8,
-      className: "mf-popup",
-    });
-    // Tuile dont l'infobulle est actuellement construite (voir le handler
-    // mousemove plus bas) : évite de reconstruire le DOM à chaque événement.
-    let tuileSurvolee: string | null = null;
-
-    // Un échec NE DOIT PAS se traduire par une couche vide : la carte dirait
-    // alors « aucune mesure » — le contresens exact que la légende et
-    // docs/analytics.md interdisent. On remonte donc l'erreur à l'UI.
-    // Le verrou temporel évite en plus la tempête de requêtes : sans lui,
-    // chaque frappe dans la recherche relance un /api/coverage vers un backend
-    // déjà en échec (coverageRef restant null, applyCoverage rappelle ici).
-    const RETRY_COOLDOWN_MS = 30_000;
-    let coverageFailedAt = 0;
-
-    const loadCoverage = (): void => {
-      if (coverageFetching || coverageRef.current) return;
-      if (coverageFailedAt && Date.now() - coverageFailedAt < RETRY_COOLDOWN_MS) {
-        return;
-      }
-      coverageFetching = true;
-      fetch("/api/coverage")
-        .then((r) => {
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          return r.json() as Promise<CoverageResponse>;
-        })
-        .then((res) => {
-          if (!alive) return;
-          coverageFailedAt = 0;
-          coverageRef.current = res;
-          setCoverageError(false);
-          applyCoverage();
-        })
-        .catch((err) => {
-          if (!alive) return;
-          coverageFailedAt = Date.now();
-          setCoverageError(true);
-          console.error("[couverture] chargement impossible :", err);
-        })
-        .finally(() => {
-          coverageFetching = false;
-        });
-    };
-
-    // Ce qui est ACTUELLEMENT peint dans la source. applyCoverage est branché
-    // sur l'effet `filters` commun à tous les filtres : sans cette mémoire, une
-    // frappe dans la recherche reconstruirait les ~2000 polygones et referait un
-    // setData — qui force MapLibre à re-tuiler toute la source dans le worker,
-    // d'où un clignotement de la couche à chaque caractère tapé.
-    let peintMetrique: CoverageSelection | null = null;
-    let peintDonnees: CoverageResponse | null = null;
-
-    const applyCoverage = (): void => {
-      // Garde `alive` AVANT toute touche à la carte, comme refreshNodes et
-      // nodesSource : ceinture et bretelles avec la remise à zéro de la ref au
-      // démontage, puisque cette fonction est atteignable par une ref partagée.
-      if (!alive) return;
-      const src = map.getSource(COVERAGE_SOURCE) as
-        | maplibregl.GeoJSONSource
-        | undefined;
-      if (!src) return;
-      const { coverage } = filtersRef.current;
-      const on = coverage !== "off";
-
-      // Bascule de visibilité : négligeable, on la refait sans condition.
-      for (const id of [COVERAGE_FILL_ID, COVERAGE_LINE_ID]) {
-        if (map.getLayer(id)) {
-          map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
-        }
-      }
-      if (!on) {
-        tuileSurvolee = null;
-        coveragePopup.remove();
-        return;
-      }
-      if (!coverageRef.current) {
-        loadCoverage();
-        return;
-      }
-      // Éteindre puis rallumer ne vide jamais la source (on masque seulement),
-      // donc la mémoire reste valable d'un cycle à l'autre.
-      if (peintMetrique === coverage && peintDonnees === coverageRef.current) {
-        return;
-      }
-      const { tiles, z } = coverageRef.current;
-      src.setData(toCoverageGeoJSON(tiles, z, coverage));
-      peintMetrique = coverage;
-      peintDonnees = coverageRef.current;
-    };
-    coverageSyncRef.current = applyCoverage;
-
     map.on("load", () => {
+      if (!alive) return;
       map.addSource("nodes", {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
@@ -618,31 +197,8 @@ export function useMapController({
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
       });
-      map.addSource(COVERAGE_SOURCE, {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: [] },
-      });
 
-      // Insérées SOUS la première couche symbole du fond de carte. Sans
-      // `beforeId`, MapLibre empile en fin de liste, donc AU-DESSUS de tout le
-      // style — y compris les libellés de villes et de routes, qui se
-      // retrouveraient teintés par le remplissage. Or c'est précisément le fond
-      // de carte qui donne son sens à la mesure (relief, axes) : il doit rester
-      // lisible. Les liens de la toile et les pills, ajoutés ensuite sans
-      // beforeId, restent au-dessus.
-      const firstSymbolId = map
-        .getStyle()
-        .layers?.find((l) => l.type === "symbol")?.id;
-
-      map.addLayer(
-        { ...COVERAGE_FILL_LAYER, layout: { visibility: "none" } },
-        firstSymbolId,
-      );
-      map.addLayer(
-        { ...COVERAGE_LINE_LAYER, layout: { visibility: "none" } },
-        firstSymbolId,
-      );
-
+      coverageController.install();
       map.addLayer({
         id: "nodes-hit",
         type: "circle",
@@ -652,110 +208,75 @@ export function useMapController({
       map.addLayer(MESH_DIRECT_LAYER);
       map.addLayer(MESH_RELAY_LAYER);
       map.addLayer(MESH_BADGE_LAYER);
-      refreshNodes();
+
+      nodeController.refreshNodes();
       loadObservations();
-      applyCoverage(); // déclenche le chargement paresseux si la couche est déjà active
     });
 
-    // Infobulle de tuile : c'est là qu'on lit la redondance et le nombre de
-    // mesures. `samples` est affiché pour que la confiance soit visible — une
-    // tuile à 2 mesures ne vaut pas une tuile à 200.
-    // La carte n'est reconstruite qu'au CHANGEMENT de tuile : mousemove tire
-    // des dizaines de fois par seconde, et setDOMContent remplace le nœud de
-    // contenu à chaque appel (allocations, pression GC, contenu qui scintille
-    // pendant un glissement). À l'intérieur d'une même tuile, seule la position
-    // bouge. C'est le fonctionnement du survol de node, qui construit sa fiche
-    // une seule fois, sur mouseenter.
-    map.on("mousemove", COVERAGE_FILL_ID, (e) => {
-      const f = e.features?.[0];
-      if (!f) return;
-      // Les pills de nodes sont des enfants de getCanvasContainer(), sur lequel
-      // MapLibre écoute : leur survol REMONTE jusqu'ici et déclenche cet
-      // événement. Sans cette garde, la carte de tuile s'ouvre par-dessus la
-      // fiche du node et la masque. La fiche node prime.
-      if (hoverPopup.isOpen()) return;
-      map.getCanvas().style.cursor = "crosshair";
-
-      const props = f.properties as Record<string, unknown>;
-      const cle = `${props.x}/${props.y}`;
-      if (cle !== tuileSurvolee) {
-        tuileSurvolee = cle;
-        coveragePopup.setDOMContent(
-          coverageCard(props, coverageRef.current?.z ?? 0),
-        );
+    map.on("data", (event) => {
+      const sourceId = (event as { sourceId?: string }).sourceId;
+      if (sourceId === "nodes" && map.isSourceLoaded("nodes")) {
+        nodeController.updateMarkers();
       }
-      coveragePopup.setLngLat(e.lngLat);
-      if (!coveragePopup.isOpen()) coveragePopup.addTo(map);
     });
-    map.on("mouseleave", COVERAGE_FILL_ID, () => {
-      map.getCanvas().style.cursor = "";
-      tuileSurvolee = null;
-      coveragePopup.remove();
-    });
-
-    map.on("data", (e) => {
-      const sourceId = (e as { sourceId?: string }).sourceId;
-      if (sourceId === "nodes" && map.isSourceLoaded("nodes")) updateMarkers();
-    });
-    map.on("click", () => {
-      pinnedNodeId = null;
-      activeMeshNodeId = null;
-      hoverPopup.remove();
-      clearMesh();
-    });
-    map.on("move", updateMarkers);
-    map.on("moveend", updateMarkers);
+    map.on("click", nodeController.clearSelection);
+    map.on("move", nodeController.updateMarkers);
+    map.on("moveend", nodeController.updateMarkers);
 
     fetch("/api/nodes")
-      .then((r) => r.json() as Promise<PublicNode[]>)
+      .then((response) => response.json() as Promise<PublicNode[]>)
       .then((nodes) => {
-        nodes.forEach((n) => nodesById.current.set(n.nodeId, nodeFeature(n)));
+        if (!alive) return;
+        nodes.forEach((node) =>
+          nodesById.current.set(node.nodeId, nodeFeature(node)),
+        );
         updateRoleOptions();
-        computeBridges(); // positions dispo -> recalcul de l'anneau (distance)
-        refreshNodes();
+        computeBridges();
+        nodeController.refreshNodes();
       })
       .catch(() => {});
 
-    const es = new EventSource("/api/stream");
-    es.addEventListener("node_update", (event) => {
+    const eventSource = new EventSource("/api/stream");
+    eventSource.addEventListener("node_update", (event) => {
+      if (!alive) return;
       try {
-        const u = JSON.parse((event as MessageEvent).data) as NodeUpdate;
-        const existing = nodesById.current.get(u.nodeId);
-        if (existing && existing.geometry.type === "Point") {
-          existing.geometry.coordinates = [u.lon, u.lat];
-          const p = existing.properties as Record<string, unknown>;
-          p.longName = u.longName ?? p.longName;
-          p.shortName = u.shortName ?? p.shortName;
-          p.role = u.role ?? p.role;
-          p.isGateway = u.isGateway;
-          p.label = shortLabel(
-            u.nodeId,
-            (u.shortName ?? p.shortName) as string,
+        const update = JSON.parse((event as MessageEvent).data) as NodeUpdate;
+        const existing = nodesById.current.get(update.nodeId);
+        if (existing?.geometry.type === "Point") {
+          existing.geometry.coordinates = [update.lon, update.lat];
+          const properties = existing.properties as Record<string, unknown>;
+          properties.longName = update.longName ?? properties.longName;
+          properties.shortName = update.shortName ?? properties.shortName;
+          properties.role = update.role ?? properties.role;
+          properties.isGateway = update.isGateway;
+          properties.label = shortLabel(
+            update.nodeId,
+            (update.shortName ?? properties.shortName) as string,
           );
-          p.lastSeen = u.lastSeen ?? "";
+          properties.lastSeen = update.lastSeen ?? "";
         } else {
-          nodesById.current.set(u.nodeId, nodeFeature(u));
+          nodesById.current.set(update.nodeId, nodeFeature(update));
         }
         updateRoleOptions();
-        refreshNodes();
+        nodeController.refreshNodes();
         scheduleObservationsRefresh();
       } catch {}
     });
 
     return () => {
       alive = false;
-      refreshRef.current = () => {};
-      // MÊME RAISON que refreshRef : ces refs survivent à l'effet. Sans cette
-      // remise à zéro, l'effet [filters] du remontage (navigation Carte ->
-      // Listes -> Carte) appelle l'applyCoverage de la carte DÉTRUITE, dont le
-      // premier geste est map.getSource() — or map.remove() a supprimé
-      // `map.style`, d'où un TypeError qui empêche la nouvelle carte de
-      // s'initialiser. La carte reste alors définitivement vide.
-      coverageSyncRef.current = () => {};
-      es.close();
-      if (observationsTimer !== null) window.clearTimeout(observationsTimer);
-      if (meshRaf !== null) cancelAnimationFrame(meshRaf);
-      Object.values(markers).forEach((m) => m.remove());
+      if (nodeControllerRef.current === nodeController) {
+        nodeControllerRef.current = null;
+      }
+      if (coverageControllerRef.current === coverageController) {
+        coverageControllerRef.current = null;
+      }
+      eventSource.close();
+      if (observationsTimer !== null) {
+        window.clearTimeout(observationsTimer);
+      }
+      coverageController.destroy();
+      nodeController.destroy();
       map.remove();
     };
   }, [bounds, containerRef, minZoom]);

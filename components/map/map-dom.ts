@@ -132,6 +132,10 @@ export function coverageCard(
   // l'union des relais de la tuile (cf. CoverageTile.gateways).
   line(`Relais depuis un même point : ${Number(p.gateways ?? 0)}`);
   line(`Émetteurs distincts : ${Number(p.nodes ?? 0)}`);
-  line(`${Number(p.samples ?? 0)} mesure(s) sur 30 j`, true);
+  line(`Émissions distinctes : ${Number(p.transmissions ?? 0)}`);
+  line(
+    `${Number(p.samples ?? 0)} réception(s) directe(s) sur ${Number(p.days ?? 0)} jour(s)`,
+    true,
+  );
   return el;
 }

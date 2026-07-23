@@ -60,23 +60,27 @@ Ce qui la rend acceptable :
 
 1. **Le payload ne contient aucun identifiant ni horodatage.** Une tuile porte
    `(x, y)` et des statistiques : SNR p90/max, nombre de relais, nombre
-   d'émetteurs, nombre de mesures. Ni `node_id`, ni `gateway_id`, ni date.
-2. **L'agrégation est elle-même anonymisante.** À la maille par défaut (z15,
-   ~1,15 km à La Réunion), une tuile est plus grossière que la cellule de flou de
-   500 m appliquée aux marqueurs publics. La couche expose donc *moins* de
-   précision géographique que la carte elle-même.
-3. **L'opt-out RGPD reste appliqué** (`NOT nd.excluded`), ainsi que l'exclusion
-   `Fr_EMCOM`.
+   d'émetteurs, nombre de transmissions, nombre de réceptions et nombre de jours.
+   Ni `node_id`, ni `gateway_id`, ni date précise.
+2. **L'incertitude Meshtastic est respectée.** `precision_bits` ne correspond
+   pas au zoom cartographique : il masque les coordonnées entières en
+   degrés×10⁷. La requête reconstitue la zone d'incertitude complète et ne
+   conserve une mesure que si cette zone tient entièrement dans une seule
+   tuile. Une précision absente ou invalide est refusée.
+3. **Les sources sont limitées et nettoyées.** Seuls les canaux de
+   `public_channels` sont admis ; `Fr_EMCOM`, l'opt-out RGPD, les paquets sans
+   identifiant exploitable et les données de démonstration sont exclus.
 
-Ce qu'elle expose en plus, et qui est **assumé** : les nodes mobiles étant inclus
-— ce sont les meilleures sondes de couverture, ils explorent le territoire — une
-trace de déplacement devient lisible sous forme de tuiles. Sans horodatage, sans
-attribution, et à une maille plus grossière que le marqueur déjà public du node.
+Une seule sonde doit pouvoir explorer un quartier : ses mesures sont donc
+publiées sans attendre d'autres émetteurs. Le compromis est explicite : même
+sans identifiant ni horaire précis, une succession de tuiles peut laisser
+deviner un parcours. La maille bornée et l'incertitude de position limitent la
+précision de cette lecture sans rendre l'outil inutilisable.
 
 ### La maille est un paramètre de vie privée
 
-`coverage_tile_zoom` est borné à **[12, 16]** (`lib/queries/settings.ts`), et le
-plafond n'est pas arbitraire :
+`coverage_tile_zoom` est borné à **[12, 16]** (`lib/queries/settings.ts`). Le
+plafond protège la cohérence avec la granularité de la carte publique :
 
 - **z16 ≈ 570 m** : dernier palier encore **plus grossier** que le flou de 500 m
   appliqué aux marqueurs — mais de très peu. La marge est mince : c'est la
@@ -86,9 +90,9 @@ plafond n'est pas arbitraire :
   public, et la couche exposerait une granularité géographique plus fine que le
   reste de la carte — elle cesserait d'être un agrégat.
 
-La comparaison va donc dans ce sens : *maille de tuile ≥ flou des marqueurs*. Une
-maille plus **petite** (zoom plus grand) est ce qui rompt l'invariant, pas une
-maille plus grande.
+La comparaison va donc dans ce sens : *maille de tuile ≥ flou des marqueurs*.
+Cette borne ne remplace pas la vérification de `precision_bits` : les deux
+grilles n'ont ni la même origine ni la même projection.
 
 Le zoom est re-validé par `assertTileZoom` avant d'entrer dans le SQL (défense en
 profondeur : une valeur écrite hors de l'API, par `psql` ou par restauration d'un
@@ -96,14 +100,16 @@ dump antérieur, ne doit pas passer).
 
 ## Ce que la couverture ne dit PAS
 
-Précision de lecture, autant méthodologique que déontologique : **une tuile absente
-signifie « aucune mesure », jamais « pas de réseau ».**
+Précision de lecture, autant méthodologique que déontologique : **une tuile
+absente signifie « aucune donnée publiable », jamais « pas de réseau ».**
 
 La carte est volontairement clairsemée — elle montre le territoire *exploré*. Rien
-n'est peint là où personne n'est passé, et aucune interpolation n'est faite entre
-tuiles : une heatmap lissée inventerait de la couverture là où il n'y a pas de
-donnée. Comme l'usage visé est de décider où poser un relais, confondre les deux
-rendrait l'outil trompeur. D'où l'entrée « Non exploré » distincte dans la légende.
+n'est peint là où personne n'est passé, mais une mesure peut aussi être rejetée
+si son incertitude chevauche plusieurs tuiles. Aucune interpolation n'est faite
+entre tuiles : une heatmap lissée inventerait de la couverture là où il n'y a
+pas de donnée. Comme l'usage visé est de décider où poser un relais, confondre
+les deux rendrait l'outil trompeur. D'où l'entrée « Non exploré » dans la
+légende.
 
 ## En cas de doute
 

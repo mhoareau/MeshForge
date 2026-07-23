@@ -28,6 +28,11 @@ describe("MapFilters", () => {
     expect(onSearchChange).toHaveBeenLastCalledWith("c");
   });
 
+  it("réserve une ligne lisible à la recherche sur mobile", () => {
+    render(<MapFilters {...props()} />);
+    expect(screen.getByPlaceholderText(/Rechercher/)).toHaveClass("w-full");
+  });
+
   it("propose les rôles fournis, dans les deux variantes d'affichage", () => {
     render(<MapFilters {...props()} />);
     // Le composant duplique chaque select (mobile / desktop) via des classes
@@ -55,20 +60,58 @@ describe("MapFilters", () => {
     expect(onSinceHChange).toHaveBeenCalledWith(168);
   });
 
-  it("expose la couche de couverture avec « off » comme option par défaut", () => {
+  it("garde le select de couverture dans la variante desktop", () => {
     render(<MapFilters {...props()} />);
     const couverture = screen.getAllByLabelText("Couche de couverture");
-    expect(couverture).toHaveLength(2);
+    expect(couverture).toHaveLength(1);
     expect((couverture[0] as HTMLSelectElement).value).toBe("off");
-    // « off » est une OPTION du sélecteur, pas une case à cocher séparée.
-    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(couverture[0]).toHaveClass("hidden", "lg:block");
   });
 
-  it("remonte le choix de métrique de couverture", async () => {
+  it("place le contrôle mobile et tablette sous les filtres sur toute la largeur", () => {
+    render(<MapFilters {...props()} />);
+    const filters = screen.getByRole("group", { name: "Filtres de nodes" });
+    const responsiveCoverage = screen.getByLabelText(
+      "Couche de couverture mobile et tablette",
+    );
+
+    expect(filters).not.toContainElement(responsiveCoverage);
+    expect(responsiveCoverage).toHaveClass("w-full", "appearance-none");
+    expect(responsiveCoverage.parentElement).toHaveClass(
+      "w-full",
+      "lg:hidden",
+    );
+  });
+
+  it("applique directement le choix du dropdown mobile et tablette", async () => {
+    const onCoverageChange = vi.fn();
+    render(<MapFilters {...props({ onCoverageChange })} />);
+
+    await userEvent.selectOptions(
+      screen.getByLabelText("Couche de couverture mobile et tablette"),
+      "snr",
+    );
+
+    expect(onCoverageChange).toHaveBeenCalledWith("snr");
+  });
+
+  it("reflète et signale visuellement la métrique mobile active", () => {
+    render(<MapFilters {...props({ coverage: "gateways" })} />);
+    const mobileCoverage = screen.getByLabelText(
+      "Couche de couverture mobile et tablette",
+    ) as HTMLSelectElement;
+    expect(mobileCoverage.value).toBe("gateways");
+    expect(mobileCoverage).toHaveClass(
+      "border-emerald-400/60",
+      "bg-emerald-800/95",
+    );
+  });
+
+  it("remonte aussi le choix de métrique depuis le select desktop", async () => {
     const onCoverageChange = vi.fn();
     render(<MapFilters {...props({ onCoverageChange })} />);
     await userEvent.selectOptions(
-      screen.getAllByLabelText("Couche de couverture")[0],
+      screen.getByLabelText("Couche de couverture"),
       "gateways",
     );
     expect(onCoverageChange).toHaveBeenCalledWith("gateways");
@@ -76,16 +119,15 @@ describe("MapFilters", () => {
 
   it("reflète la métrique active", () => {
     render(<MapFilters {...props({ coverage: "nodes" })} />);
-    const sel = screen.getAllByLabelText(
+    const sel = screen.getByLabelText(
       "Couche de couverture",
-    )[0] as HTMLSelectElement;
+    ) as HTMLSelectElement;
     expect(sel.value).toBe("nodes");
   });
 
   it("câble AUSSI la variante desktop de chaque sélecteur", async () => {
-    // Chaque filtre est rendu deux fois (mobile / desktop) et les deux sont
-    // dans le DOM sous jsdom. Un copier-coller pourrait laisser la seconde
-    // variante non câblée : les tests ci-dessus n'exercent que la première.
+    // Les trois filtres de nodes ont une variante mobile et desktop. La
+    // couverture garde le select desktop et un contrôle mobile séparé.
     const onRoleChange = vi.fn();
     const onSinceHChange = vi.fn();
     const onHopFilterChange = vi.fn();
@@ -105,7 +147,7 @@ describe("MapFilters", () => {
     await userEvent.selectOptions(selects[3], "24"); // vus depuis, desktop
     await userEvent.selectOptions(selects[5], "2"); // hops, desktop
     await userEvent.selectOptions(
-      screen.getAllByLabelText("Couche de couverture")[1],
+      screen.getByLabelText("Couche de couverture"),
       "snr",
     );
     expect(onRoleChange).toHaveBeenCalledWith("CLIENT");

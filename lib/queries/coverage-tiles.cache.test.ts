@@ -2,12 +2,11 @@
 // concurrents, éviction sur échec.
 //
 // PORTÉE DE CE FICHIER — il mocke `pool.query`, donc il n'exécute AUCUN SQL et
-// ne prouve rien de la requête elle-même. Le SQL est vérifié ailleurs, contre
-// une vraie base : `yarn check-tile-parity` pour la projection, et les
-// contre-exemples de `scripts/seed-coverage-tiles.sql` pour le prédicat radio,
-// la déduplication et la redondance. C'est cette séparation qui compte : une
-// base simulée renvoie ce qu'on lui dit et n'analyse jamais la requête — elle
-// n'aurait pas attrapé l'erreur de syntaxe `ORDER BY` avant `UNION ALL`.
+// ne prouve rien de la requête elle-même. Le SQL est vérifié ailleurs par
+// `coverage-tiles.integration.test.ts` contre PostgreSQL ; le script
+// `seed-coverage-tiles.sql` reste un jeu visuel manuel. C'est cette séparation
+// qui compte : une base simulée renvoie ce qu'on lui dit et n'analyse jamais la
+// requête — elle n'aurait pas attrapé une erreur de syntaxe SQL.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const query = vi.fn();
@@ -20,6 +19,18 @@ vi.mock("./settings", async (importOriginal) => {
 });
 
 const REUNION = { west: 54.7, south: -21.9, east: 56.3, north: -20.4 };
+const CHANNELS = ["Fr_Balise", "Fr_BlaBla"];
+
+const setting = (
+  key: string,
+  zoom = 15,
+  bounds: typeof REUNION | null = REUNION,
+  channels = CHANNELS,
+) => {
+  if (key === "coverage_tile_zoom") return zoom;
+  if (key === "map_bounds") return bounds;
+  return channels;
+};
 
 // Le cache vit dans la portée du module : on le réinitialise en réimportant.
 async function neuf() {
@@ -27,16 +38,27 @@ async function neuf() {
   return import("./coverage-tiles");
 }
 
-const ligne = { tx: 1, ty: 2, snrP90: -8, snrMax: -5, gateways: 2, nodes: 1, samples: 3 };
+const ligne = {
+  tx: 1,
+  ty: 2,
+  snrP90: -8,
+  snrMax: -5,
+  gateways: 2,
+  nodes: 3,
+  transmissions: 3,
+  samples: 4,
+  days: 2,
+};
 
 beforeEach(() => {
   query.mockReset().mockResolvedValue({ rows: [ligne] });
-  getSetting.mockReset().mockImplementation((k: string) =>
-    k === "coverage_tile_zoom" ? 15 : REUNION,
-  );
+  getSetting.mockReset().mockImplementation((k: string) => setting(k));
   vi.useRealTimers();
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+});
 
 describe("getCoverageTiles — cache", () => {
   it("interroge la base au premier appel et sert le cache ensuite", async () => {
@@ -58,7 +80,7 @@ describe("getCoverageTiles — cache", () => {
       () => new Promise((r) => { resoudre = r; }),
     );
     const promesses = Array.from({ length: 12 }, () => getCoverageTiles());
-    // getCoverageTiles attend DEUX réglages avant d'atteindre le cache :
+    // getCoverageTiles attend ses réglages avant d'atteindre le cache :
     // résoudre tout de suite libérerait un `resoudre` encore non affecté.
     await vi.waitFor(() => expect(query).toHaveBeenCalled());
     resoudre({ rows: [ligne] });
@@ -73,7 +95,7 @@ describe("getCoverageTiles — cache", () => {
     const { getCoverageTiles } = await neuf();
     await getCoverageTiles();
     getSetting.mockImplementation((k: string) =>
-      k === "coverage_tile_zoom" ? 15 : { ...REUNION, east: 57 },
+      setting(k, 15, { ...REUNION, east: 57 }),
     );
     await getCoverageTiles();
     expect(query).toHaveBeenCalledTimes(2);
@@ -82,9 +104,7 @@ describe("getCoverageTiles — cache", () => {
   it("recalcule quand le ZOOM change, à bornes constantes", async () => {
     const { getCoverageTiles } = await neuf();
     await getCoverageTiles();
-    getSetting.mockImplementation((k: string) =>
-      k === "coverage_tile_zoom" ? 14 : REUNION,
-    );
+    getSetting.mockImplementation((k: string) => setting(k, 14));
     const r = await getCoverageTiles();
     expect(query).toHaveBeenCalledTimes(2);
     expect(r.z).toBe(14);
@@ -93,14 +113,38 @@ describe("getCoverageTiles — cache", () => {
   it("distingue une carte ouverte d'une carte bornée", async () => {
     const { getCoverageTiles } = await neuf();
     await getCoverageTiles();
+    getSetting.mockImplementation((k: string) => setting(k, 15, null));
+    await getCoverageTiles();
+    expect(query).toHaveBeenCalledTimes(2);
+    // Variante non bornée : zoom, mode démo et canaux.
+    expect(query.mock.calls[1][1]).toHaveLength(3);
+    expect(query.mock.calls[0][1]).toHaveLength(7);
+  });
+
+  it("recalcule quand l'allowlist des canaux change", async () => {
+    const { getCoverageTiles } = await neuf();
+    await getCoverageTiles();
     getSetting.mockImplementation((k: string) =>
-      k === "coverage_tile_zoom" ? 15 : null,
+      setting(k, 15, REUNION, ["Fr_Balise"]),
     );
     await getCoverageTiles();
     expect(query).toHaveBeenCalledTimes(2);
-    // Variante non bornée : un seul paramètre (le zoom).
-    expect(query.mock.calls[1][1]).toHaveLength(1);
-    expect(query.mock.calls[0][1]).toHaveLength(5);
+  });
+
+  it("n'inclut les seeds que sur demande explicite en développement", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("COVERAGE_INCLUDE_DEMO", "1");
+    const { getCoverageTiles } = await neuf();
+    await getCoverageTiles();
+    expect(query.mock.calls[0][1][1]).toBe(true);
+  });
+
+  it("refuse toujours les seeds en production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("COVERAGE_INCLUDE_DEMO", "1");
+    const { getCoverageTiles } = await neuf();
+    await getCoverageTiles();
+    expect(query.mock.calls[0][1][1]).toBe(false);
   });
 
   it("recalcule après expiration du TTL", async () => {
@@ -123,9 +167,7 @@ describe("getCoverageTiles — cache", () => {
 
   it("refuse un zoom hors plage venu du réglage", async () => {
     const { getCoverageTiles } = await neuf();
-    getSetting.mockImplementation((k: string) =>
-      k === "coverage_tile_zoom" ? 20 : REUNION,
-    );
+    getSetting.mockImplementation((k: string) => setting(k, 20));
     await expect(getCoverageTiles()).rejects.toThrow(/hors plage/);
     expect(query).not.toHaveBeenCalled();
   });
@@ -135,6 +177,8 @@ describe("getCoverageTiles — cache", () => {
     await getCoverageTiles();
     expect(query.mock.calls[0][1]).toEqual([
       15,
+      false,
+      CHANNELS,
       REUNION.south,
       REUNION.north,
       REUNION.west,

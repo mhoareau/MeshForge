@@ -192,8 +192,8 @@ export function requireZoom(raw: unknown): number {
 
 // --- Maille des tuiles de couverture : ENTIER dans [12,16] ---
 // Entier obligatoire (≠ map_min_zoom qui accepte les décimaux) : il sert
-// d'exposant à 2^z côté SQL et de seuil de precision_bits. Un z20 par faute de
-// frappe générerait des millions de tuiles, d'où la plage stricte.
+// d'exposant à 2^z côté SQL. Un z20 par faute de frappe générerait des millions
+// de tuiles, d'où la plage stricte.
 const isTileZoom = (n: number): boolean =>
   Number.isInteger(n) &&
   n >= MIN_COVERAGE_TILE_ZOOM &&

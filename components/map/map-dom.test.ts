@@ -101,8 +101,10 @@ describe("coverageCard", () => {
     snrP90: -10.14,
     snrMax: -9.8,
     gateways: 3,
-    nodes: 2,
+    nodes: 4,
+    transmissions: 17,
     samples: 42,
+    days: 6,
   };
 
   it("rappelle la maille en titre", () => {
@@ -114,7 +116,9 @@ describe("coverageCard", () => {
     expect(t).toContain("-10.1");
     expect(t).toContain("-9.8");
     expect(t).toContain("3");
+    expect(t).toContain("17");
     expect(t).toContain("42");
+    expect(t).toContain("6 jour");
   });
 
   it("qualifie la redondance de « depuis un même point »", () => {

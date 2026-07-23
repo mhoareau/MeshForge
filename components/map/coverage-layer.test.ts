@@ -16,7 +16,9 @@ const tile = (over: Partial<CoverageTile> = {}): CoverageTile => ({
   snrMax: -3,
   gateways: 2,
   nodes: 3,
+  transmissions: 8,
   samples: 12,
+  days: 4,
   ...over,
 });
 
@@ -53,9 +55,10 @@ describe("tileFillColor — métriques de comptage", () => {
     expect(tileFillColor(tile({ gateways: 12 }), "gateways")).toBe(SNR_GOOD);
   });
 
-  it("applique la même échelle aux émetteurs distincts", () => {
+  it("distingue une sonde unique de plusieurs émetteurs", () => {
     expect(tileFillColor(tile({ nodes: 1 }), "nodes")).toBe(SNR_BAD);
-    expect(tileFillColor(tile({ nodes: 4 }), "nodes")).toBe(SNR_GOOD);
+    expect(tileFillColor(tile({ nodes: 2 }), "nodes")).toBe(SNR_FAIR);
+    expect(tileFillColor(tile({ nodes: 3 }), "nodes")).toBe(SNR_GOOD);
   });
 
   it("ne dépend pas du SNR pour une métrique de comptage", () => {
@@ -107,7 +110,9 @@ describe("toCoverageGeoJSON", () => {
       snrMax: -3,
       gateways: 2,
       nodes: 3,
+      transmissions: 8,
       samples: 12,
+      days: 4,
     });
   });
 

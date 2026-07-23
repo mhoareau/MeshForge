@@ -1,3 +1,5 @@
+"use client";
+
 import type { CoverageMetric, CoverageSelection } from "@/types";
 import { SNR_BAD, SNR_FAIR, SNR_GOOD, SNR_UNKNOWN_COLOR } from "./signal-color";
 
@@ -9,7 +11,7 @@ type MapLegendProps = {
 };
 
 // Paliers affichés pour la métrique active. Les libellés des comptages sont
-// ceux de COUNT_STEPS (coverage-layer.ts) — les deux doivent rester alignés.
+// ceux utilisés par tileFillColor (coverage-layer.ts) — les deux doivent rester alignés.
 const COVERAGE_SCALE: Record<
   CoverageMetric,
   { color: string; label: string }[]
@@ -130,14 +132,14 @@ export function MapLegend({
                   </div>
                 ))}
                 {/* ENTRÉE ESSENTIELLE : sans elle, une zone blanche se lit
-                    « pas de réseau » alors qu'elle veut dire « jamais mesuré ».
-                    La confusion rendrait la couche trompeuse pour décider où
-                    poser un relais — précisément son usage. */}
+                    « pas de réseau » alors qu'elle veut dire « aucune mesure
+                    attribuable ». La confusion rendrait la couche trompeuse
+                    pour décider où poser un relais — précisément son usage. */}
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="h-4 w-10 flex-none rounded-sm border border-dashed border-black/30 dark:border-white/30" />
                   <span className="min-w-0 break-words">
-                    <strong>Non exploré</strong> — aucune mesure, ne signifie
-                    pas absence de réseau
+                    <strong>Non exploré</strong> — aucune mesure attribuable, ne
+                    signifie pas absence de réseau
                   </span>
                 </div>
               </>
@@ -145,6 +147,7 @@ export function MapLegend({
           </div>
         </div>
       )}
+
       <button
         type="button"
         onClick={onToggle}
